@@ -6,7 +6,7 @@ import { firebaseAuth } from '@/src/lib/firebase';
 
 if (Platform.OS === 'android') {
   GoogleSignin.configure({
-    webClientId: 'autoDetect',
+    webClientId: '977147075388-k1tmkpof3dcbk8buuudlsrg0cj74nr2t.apps.googleusercontent.com',
     profileImageSize: 160,
   });
 }

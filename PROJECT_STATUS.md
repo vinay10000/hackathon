@@ -43,6 +43,7 @@
 - Extended AMOLED/theme token support into shared stat cards, empty states, habit cards, and habit creation/edit forms
 - Verified `npm run typecheck`
 - Verified `npx expo export --platform web`
+- Verified EAS Android preview APK build with profile `preview`
 
 ## In Progress
 - Polishing the first five feature areas beyond the initial vertical slice
@@ -85,3 +86,4 @@
 - 2026-05-24: Completed a broader local-first feature pass for assistant command execution, export/reset privacy flows, destructive-action confirmations, and theme-token coverage
 - 2026-05-24: Added Expo speech recognition to Assistant with live editable transcription and permission/error handling
 - 2026-05-24: Added Firebase Auth with Email/Password and Android native Google Sign-In wiring
+- 2026-05-24: Created and linked EAS project, configured preview APK builds, and produced a native Android preview APK

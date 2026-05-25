@@ -1,9 +1,11 @@
 import type React from 'react';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { Alert, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { PrimaryButton } from '@/src/components/primary-button';
 import { ScreenShell } from '@/src/components/screen-shell';
+import { PROFILE_AVATARS } from '@/src/constants/profile';
 import { signOutOfFirebase } from '@/src/lib/auth';
 import { canScheduleNotifications, requestNotificationAccess } from '@/src/lib/notifications';
 import { buildLocalDataExport, buildPrivacySafeTelemetry } from '@/src/lib/privacy-export';
@@ -25,6 +27,7 @@ export default function SettingsScreen() {
   const premium = useAppStore((state) => state.premium);
   const habits = useAppStore((state) => state.habits);
   const logs = useAppStore((state) => state.logs);
+  const setProfile = useAppStore((state) => state.setProfile);
   const setNotificationPermission = useAppStore((state) => state.setNotificationPermission);
   const setTheme = useAppStore((state) => state.setTheme);
   const setAiEnabled = useAppStore((state) => state.setAiEnabled);
@@ -57,6 +60,35 @@ export default function SettingsScreen() {
       </SettingsCard>
 
       <SettingsCard title="Profile and sync" tokens={tokens}>
+        <TextInput
+          value={session.displayName ?? ''}
+          onChangeText={(nextValue) => setProfile({ displayName: nextValue })}
+          placeholder="Your name"
+          placeholderTextColor={tokens.textMuted}
+          style={[styles.input, { backgroundColor: tokens.surfaceMuted, borderColor: tokens.border, color: tokens.text }]}
+        />
+        <View style={styles.avatarPickerRow}>
+          {PROFILE_AVATARS.map((avatar) => {
+            const selected = preferences.profileAvatarId === avatar.id;
+            return (
+              <Pressable
+                key={avatar.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                onPress={() => setProfile({ profileAvatarId: avatar.id })}
+                style={[
+                  styles.profileAvatarButton,
+                  {
+                    backgroundColor: avatar.color,
+                    borderColor: selected ? tokens.text : tokens.border,
+                  },
+                ]}
+              >
+                <Ionicons name={avatar.icon} size={20} color="#ffffff" />
+              </Pressable>
+            );
+          })}
+        </View>
         <Text style={[styles.body, { color: tokens.textMuted }]}>Mode: {session.mode} · Sync: {session.syncStatus}</Text>
         <Text style={[styles.body, { color: tokens.textMuted }]}>{session.email ? `Signed in as ${session.email}` : 'Sign in to upgrade this guest session without losing local habits.'}</Text>
         <View style={styles.row}>
@@ -198,6 +230,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
+  },
+  avatarPickerRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  profileAvatarButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 18,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   warning: {
     lineHeight: 20,

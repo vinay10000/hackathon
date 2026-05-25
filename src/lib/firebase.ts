@@ -2,13 +2,21 @@ import { FirebaseApp, getApp, getApps, initializeApp } from 'firebase/app';
 import { Auth, getAuth } from 'firebase/auth';
 
 const firebaseConfig = {
-  apiKey: 'AIzaSyCvrklJIt0I6KlHGXj3_WL_7nP2Ha4fc_U',
-  authDomain: 'habit-tracker-9f884.firebaseapp.com',
-  projectId: 'habit-tracker-9f884',
-  storageBucket: 'habit-tracker-9f884.firebasestorage.app',
-  messagingSenderId: '977147075388',
-  appId: '1:977147075388:android:4df20b1f7de3a09b155c39',
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
 };
+
+const missingFirebaseKeys = Object.entries(firebaseConfig)
+  .filter(([, value]) => !value)
+  .map(([key]) => key);
+
+if (missingFirebaseKeys.length) {
+  throw new Error(`Missing Firebase config: ${missingFirebaseKeys.join(', ')}. Set the matching EXPO_PUBLIC_FIREBASE_* environment variables.`);
+}
 
 export const firebaseApp: FirebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const firebaseAuth: Auth = getAuth(firebaseApp);

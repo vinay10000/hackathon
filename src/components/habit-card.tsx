@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { getHabitLogForDate } from '@/src/domain/habits';
 import { useAppStore } from '@/src/store/app-store';
-import { palette, useThemeTokens } from '@/src/theme/colors';
+import { useThemeTokens } from '@/src/theme/colors';
 import { Habit } from '@/src/types/habits';
 
 type HabitCardProps = {
@@ -29,18 +29,20 @@ export function HabitCard({ habit, dateKey, onOpen }: HabitCardProps) {
     <Pressable accessibilityRole="button" accessibilityLabel={`${habit.name}, ${progressText}`} style={[styles.card, { backgroundColor: tokens.surface, borderColor: tokens.border }]} onPress={onOpen}>
       <View style={styles.row}>
         <View style={styles.titleWrap}>
-          <View style={[styles.iconChip, { backgroundColor: habit.color }]}>
-            <Ionicons name="sparkles" size={16} color="#ffffff" />
+          <View style={[styles.iconChip, { backgroundColor: `${habit.color}22` }]}>
+            <Ionicons name={habit.icon as React.ComponentProps<typeof Ionicons>['name']} size={22} color={habit.color} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={[styles.title, { color: tokens.text }]}>{habit.name}</Text>
-            <Text style={[styles.meta, { color: tokens.textMuted }]}>
-              {habit.category} · {progressText}
-            </Text>
+            <Text style={[styles.meta, { color: habit.color }]}>{habit.category}</Text>
           </View>
         </View>
-        <Pressable accessibilityRole="button" accessibilityLabel={log?.status === 'completed' ? `Undo ${habit.name}` : `Complete ${habit.name}`} style={[styles.doneButton, { backgroundColor: tokens.primarySoft }, log?.status === 'completed' && { backgroundColor: tokens.primary }]} onPress={() => toggleComplete(habit.id, dateKey)}>
-          <Ionicons name={log?.status === 'completed' ? 'checkmark' : 'add'} size={18} color={log?.status === 'completed' ? '#ffffff' : tokens.primary} />
+        <View style={styles.trailingMeta}>
+          <Text style={[styles.progressTop, { color: log?.status === 'completed' ? habit.color : tokens.text }]}>{progressText}</Text>
+          <Text style={[styles.progressBottom, { color: tokens.textMuted }]}>{habit.unit ?? (habit.kind === 'yesNo' ? 'done' : 'today')}</Text>
+        </View>
+        <Pressable accessibilityRole="button" accessibilityLabel={log?.status === 'completed' ? `Undo ${habit.name}` : `Complete ${habit.name}`} style={[styles.doneButton, { backgroundColor: `${habit.color}22`, borderColor: `${habit.color}44` }, log?.status === 'completed' && { backgroundColor: habit.color }]} onPress={() => toggleComplete(habit.id, dateKey)}>
+          <Ionicons name={log?.status === 'completed' ? 'checkmark' : 'add'} size={18} color={log?.status === 'completed' ? '#ffffff' : habit.color} />
         </Pressable>
       </View>
 
@@ -90,9 +92,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   iconChip: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
+    width: 56,
+    height: 56,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -101,15 +103,29 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   meta: {
-    fontSize: 13,
+    fontSize: 14,
+    marginTop: 4,
+    fontWeight: '600',
+  },
+  trailingMeta: {
+    alignItems: 'flex-end',
+    marginLeft: 'auto',
+  },
+  progressTop: {
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  progressBottom: {
+    fontSize: 12,
     marginTop: 2,
   },
   doneButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
   },
   metricRow: {
     flexDirection: 'row',

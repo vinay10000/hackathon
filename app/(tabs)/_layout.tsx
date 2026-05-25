@@ -38,8 +38,20 @@ function FloatingTabBar({ state, descriptors, navigation }: any) {
   const tokens = useThemeTokens();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const bottomOffset = Math.max(insets.bottom, 12);
-  const railWidth = Math.min(width - 116, 440);
+  const bottomOffset = Math.max(insets.bottom, 10);
+  const maxRailWidth = 420;
+  const addButtonSize = 72;
+  const sidePadding = 16;
+  const addButtonGap = 14;
+  const railWidth = Math.min(width - addButtonSize - addButtonGap - sidePadding * 2, maxRailWidth);
+  const tabRoutes = state.routes.filter((route: any) => visibleTabs[route.name]);
+  const visibleTabCount = tabRoutes.length;
+  const railInnerWidth = Math.max(railWidth - 28, 200);
+  const inactiveTabWidth = Math.max(
+    42,
+    Math.floor((railInnerWidth - 52) / Math.max(visibleTabCount - 1, 1)),
+  );
+  const activeTabWidth = Math.min(64, railInnerWidth - inactiveTabWidth * Math.max(visibleTabCount - 1, 0));
 
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
@@ -49,15 +61,15 @@ function FloatingTabBar({ state, descriptors, navigation }: any) {
             styles.rail,
             {
               width: railWidth,
-              backgroundColor: tokens.mode === 'light' ? 'rgba(255,255,255,0.92)' : 'rgba(18,18,18,0.88)',
-              borderColor: tokens.mode === 'light' ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.08)',
+              backgroundColor:
+                tokens.mode === 'light' ? 'rgba(16,36,62,0.76)' : tokens.mode === 'dark' ? 'rgba(17,29,47,0.88)' : 'rgba(5,5,5,0.92)',
+              borderColor:
+                tokens.mode === 'light' ? 'rgba(37,99,235,0.18)' : tokens.mode === 'dark' ? 'rgba(96,165,250,0.16)' : 'rgba(94,234,212,0.18)',
               shadowColor: '#000000',
             },
           ]}
         >
-          {state.routes
-            .filter((route: any) => visibleTabs[route.name])
-            .map((route: any) => {
+          {tabRoutes.map((route: any) => {
               const routeIndex = state.routes.findIndex((candidate: any) => candidate.key === route.key);
               const isFocused = state.index === routeIndex;
               const tab = visibleTabs[route.name];
@@ -91,15 +103,36 @@ function FloatingTabBar({ state, descriptors, navigation }: any) {
                   testID={descriptor.options.tabBarButtonTestID}
                   style={[
                     styles.tabButton,
+                    {
+                      width: isFocused ? activeTabWidth : inactiveTabWidth,
+                    },
                     isFocused && {
-                      backgroundColor: tokens.mode === 'light' ? 'rgba(16,36,62,0.08)' : 'rgba(94,234,212,0.12)',
+                      backgroundColor: tokens.mode === 'light' ? 'rgba(255,255,255,0.14)' : tokens.primarySoft,
+                      borderColor: tokens.mode === 'light' ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.06)',
                     },
                   ]}
                   onLongPress={onLongPress}
                   onPress={onPress}
                 >
-                  <Ionicons name={tab.icon} size={22} color={isFocused ? tokens.primary : tokens.textMuted} />
-                  <Text style={[styles.tabLabel, { color: isFocused ? tokens.text : tokens.textMuted }]}>{tab.label}</Text>
+                  <Ionicons
+                    name={tab.icon}
+                    size={22}
+                    color={isFocused ? '#ffffff' : tokens.mode === 'light' ? 'rgba(255,255,255,0.88)' : tokens.textMuted}
+                  />
+                  <Text
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.72}
+                    numberOfLines={1}
+                    style={[
+                      styles.tabLabel,
+                      {
+                        color: isFocused ? '#ffffff' : tokens.mode === 'light' ? 'rgba(255,255,255,0.88)' : tokens.textMuted,
+                        maxWidth: isFocused ? activeTabWidth - 10 : inactiveTabWidth - 8,
+                      },
+                    ]}
+                  >
+                    {tab.label}
+                  </Text>
                 </Pressable>
               );
             })}
@@ -111,14 +144,15 @@ function FloatingTabBar({ state, descriptors, navigation }: any) {
           style={[
             styles.addButton,
             {
-              backgroundColor: tokens.surface,
-              borderColor: tokens.mode === 'light' ? 'rgba(255,255,255,0.45)' : tokens.border,
+              backgroundColor: tokens.mode === 'light' ? tokens.primary : tokens.surface,
+              borderColor:
+                tokens.mode === 'light' ? 'rgba(255,255,255,0.22)' : tokens.mode === 'dark' ? 'rgba(96,165,250,0.16)' : 'rgba(94,234,212,0.18)',
               shadowColor: '#000000',
             },
           ]}
           onPress={() => router.push('/habit/new')}
         >
-          <Ionicons name="add" size={30} color={tokens.primary} />
+          <Ionicons name="add" size={28} color={tokens.mode === 'light' ? '#ffffff' : tokens.primary} />
         </Pressable>
       </View>
     </View>
@@ -129,39 +163,46 @@ const styles = StyleSheet.create({
   wrapper: {
     flex: 1,
     justifyContent: 'flex-end',
-    alignItems: 'center',
+    alignItems: 'stretch',
   },
   rail: {
-    minHeight: 84,
-    borderRadius: 34,
+    minHeight: 72,
+    borderRadius: 36,
     borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingLeft: 10,
+    paddingRight: 16,
+    paddingVertical: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-    shadowOpacity: 0.28,
-    shadowRadius: 28,
-    shadowOffset: { width: 0, height: 14 },
-    elevation: 20,
+    justifyContent: 'flex-start',
+    gap: 4,
+    marginLeft: 16,
+    shadowOpacity: 0.34,
+    shadowRadius: 26,
+    shadowOffset: { width: 0, height: 16 },
+    elevation: 24,
   },
   tabButton: {
-    flex: 1,
-    minHeight: 58,
-    borderRadius: 24,
+    minHeight: 52,
+    borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    paddingHorizontal: 6,
+    gap: 3,
+    paddingHorizontal: 4,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    flexShrink: 0,
   },
   tabLabel: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 10,
+    fontWeight: '500',
+    lineHeight: 11,
+    textAlign: 'center',
   },
   addButton: {
     position: 'absolute',
-    right: 24,
+    right: 12,
     bottom: 14,
     width: 72,
     height: 72,
@@ -169,9 +210,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowOpacity: 0.32,
-    shadowRadius: 22,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 24,
+    shadowOpacity: 0.36,
+    shadowRadius: 26,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 28,
   },
 });

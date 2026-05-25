@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { format } from 'date-fns';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import { useShallow } from 'zustand/react/shallow';
 
 import { calculateCompletionRate, calculateStreak, computeLogStatus, createId, getHabitLogForDate, habitFromDraft, isHabitScheduledForDate } from '@/src/domain/habits';
 import { clearNotificationIds, syncHabitReminderNotifications } from '@/src/lib/notifications';
@@ -22,6 +23,7 @@ type AppState = {
   setAiEnabled: (value: boolean) => void;
   setMicrophonePermission: (value: AppPreferences['microphonePermission']) => void;
   setTelemetryEnabled: (value: boolean) => void;
+  setProfile: (profile: { displayName?: string; profileAvatarId?: string }) => void;
   setPremiumEntitlement: (value: PremiumState['entitlement']) => void;
   startEmailSession: (email: string) => void;
   startFirebaseSession: (session: Pick<UserSession, 'mode' | 'uid' | 'email' | 'displayName'>) => void;
@@ -56,9 +58,11 @@ export const useAppStore = create<AppState>()(
         aiEnabled: true,
         microphonePermission: 'unknown',
         telemetryEnabled: false,
+        profileAvatarId: 'aurora',
       },
       session: {
         mode: 'guest',
+        displayName: 'Friend',
         syncStatus: 'local-only',
       },
       premium: {
@@ -110,6 +114,17 @@ export const useAppStore = create<AppState>()(
             telemetryEnabled: value,
           },
         })),
+      setProfile: ({ displayName, profileAvatarId }) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            profileAvatarId: profileAvatarId ?? state.preferences.profileAvatarId,
+          },
+          session: {
+            ...state.session,
+            displayName: displayName?.trim() ? displayName.trim() : state.session.displayName,
+          },
+        })),
       setPremiumEntitlement: (value) =>
         set({
           premium: {
@@ -152,6 +167,7 @@ export const useAppStore = create<AppState>()(
           },
           session: {
             mode: 'guest',
+            displayName: state.session.displayName,
             syncStatus: 'local-only',
           },
         })),
@@ -181,6 +197,7 @@ export const useAppStore = create<AppState>()(
           },
           session: {
             mode: 'guest',
+            displayName: state.session.displayName,
             syncStatus: 'local-only',
           },
           premium: {
@@ -338,28 +355,31 @@ export const useAppStore = create<AppState>()(
 );
 
 export function useTodayHabits() {
-  return useAppStore((state) => {
-    const dateKey = format(new Date(), 'yyyy-MM-dd');
-    return state.habits.filter((habit) => !habit.archivedAt && isHabitScheduledForDate(habit, dateKey, state.logs));
-  });
+  return useAppStore(
+    useShallow((state) => {
+      const dateKey = format(new Date(), 'yyyy-MM-dd');
+      return state.habits.filter((habit) => !habit.archivedAt && isHabitScheduledForDate(habit, dateKey, state.logs));
+    }),
+  );
 }
 
 export function useArchivedHabits() {
-  return useAppStore((state) => state.habits.filter((habit) => habit.archivedAt));
+  return useAppStore(useShallow((state) => state.habits.filter((habit) => habit.archivedAt)));
 }
 
 export function useHabitInsights(habitId: string) {
-  return useAppStore((state) => {
-    const habit = state.habits.find((item) => item.id === habitId);
-    if (!habit) {
-      return null;
-    }
-    return {
-      streak: calculateStreak(habit, state.logs),
-      completionRate: calculateCompletionRate(habit, state.logs),
-      logs: state.logs.filter((log) => log.habitId === habitId).sort((a, b) => b.date.localeCompare(a.date)),
-    };
-  });
+  const habit = useAppStore((state) => state.habits.find((item) => item.id === habitId));
+  const logs = useAppStore((state) => state.logs);
+
+  if (!habit) {
+    return null;
+  }
+
+  return {
+    streak: calculateStreak(habit, logs),
+    completionRate: calculateCompletionRate(habit, logs),
+    logs: logs.filter((log) => log.habitId === habitId).sort((a, b) => b.date.localeCompare(a.date)),
+  };
 }
 
 function upsertLog(set: (fn: (state: AppState) => Partial<AppState>) => void, logs: HabitLog[], nextLog: HabitLog) {

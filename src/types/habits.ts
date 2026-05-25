@@ -81,6 +81,7 @@ export type AppPreferences = {
   aiEnabled: boolean;
   microphonePermission: 'unknown' | 'granted' | 'denied';
   telemetryEnabled: boolean;
+  profileAvatarId: string;
 };
 
 export type HabitFormDraft = {
