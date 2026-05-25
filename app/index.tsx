@@ -16,5 +16,5 @@ export default function IndexScreen() {
     );
   }
 
-  return <Redirect href={onboardingComplete ? '/(tabs)/today' : '/onboarding'} />;
+  return <Redirect href={onboardingComplete ? '/today' : '/onboarding'} />;
 }

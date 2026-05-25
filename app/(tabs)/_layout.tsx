@@ -38,9 +38,9 @@ function FloatingTabBar({ state, descriptors, navigation }: any) {
   const tokens = useThemeTokens();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const bottomOffset = Math.max(insets.bottom, 10);
+  const bottomOffset = Math.max(insets.bottom, 26);
   const maxRailWidth = 420;
-  const addButtonSize = 72;
+  const addButtonSize = 60;
   const sidePadding = 16;
   const addButtonGap = 14;
   const railWidth = Math.min(width - addButtonSize - addButtonGap - sidePadding * 2, maxRailWidth);
@@ -151,8 +151,13 @@ function FloatingTabBar({ state, descriptors, navigation }: any) {
             },
           ]}
           onPress={() => router.push('/habit/new')}
-        >
-          <Ionicons name="add" size={28} color={tokens.mode === 'light' ? '#ffffff' : tokens.primary} />
+          >
+          <Ionicons
+            name="add"
+            size={22}
+            color={tokens.mode === 'light' ? '#ffffff' : tokens.primary}
+            style={{ transform: [{ translateY: -1 }] }}
+          />
         </Pressable>
       </View>
     </View>
@@ -177,6 +182,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     gap: 4,
     marginLeft: 16,
+    marginBottom: 12,
     shadowOpacity: 0.34,
     shadowRadius: 26,
     shadowOffset: { width: 0, height: 16 },
@@ -202,17 +208,17 @@ const styles = StyleSheet.create({
   },
   addButton: {
     position: 'absolute',
-    right: 12,
-    bottom: 14,
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    right: 14,
+    bottom: 40,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
     shadowOpacity: 0.36,
-    shadowRadius: 26,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 28,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 22,
   },
 });

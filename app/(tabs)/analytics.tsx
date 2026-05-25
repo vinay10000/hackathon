@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { eachDayOfInterval, format, parseISO, startOfDay, subDays } from 'date-fns';
-import { useState, type ReactNode } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Animated, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 
 import { EmptyState } from '@/src/components/empty-state';
@@ -31,20 +31,38 @@ type RingTick = {
   top: number;
 };
 
+type RangeFilter = 'recent' | 'weekly' | 'all';
+
+type TrendWindowOption = {
+  dateKey: string;
+  rangeLabel: string;
+  relativeLabel: string;
+  percentage: number;
+  completedCount: number;
+  scheduledCount: number;
+  delta: number;
+};
+
 const RING_TICK_COUNT = 56;
 const CHART_HEIGHT = 188;
 const CHART_SIDE_LABEL_WIDTH = 42;
-const CHART_BOTTOM_LABEL_HEIGHT = 30;
+const CHART_BOTTOM_LABEL_HEIGHT = 54;
 const CHART_TOP_PADDING = 10;
 const CHART_RIGHT_PADDING = 14;
 const CHART_DOT_SIZE = 12;
+const CHART_POINT_LABEL_WIDTH = 40;
+const CHART_HORIZONTAL_INSET = 18;
 
 export default function AnalyticsScreen() {
   const tokens = useThemeTokens();
   const { width } = useWindowDimensions();
+  const isLight = tokens.mode === 'light';
   const [selectedEndDateKey, setSelectedEndDateKey] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [isRangePickerOpen, setRangePickerOpen] = useState(false);
+  const [rangeFilter, setRangeFilter] = useState<RangeFilter>('recent');
+  const sheetTranslateY = useRef(new Animated.Value(0)).current;
   const isCompact = width < 420;
+  const isNarrowChart = width < 390;
   const ringSize = isCompact ? 150 : 194;
   const ringRadius = isCompact ? 58 : 76;
   const ringTickHeight = isCompact ? 20 : 26;
@@ -68,6 +86,49 @@ export default function AnalyticsScreen() {
   const selectableEndDates = getSelectableEndDateKeys(30);
   const weeklyTrend = last7Days.map((dateKey) => buildDayTrend(dateKey, habits, logs));
   const previousTrend = previous7Days.map((dateKey) => buildDayTrend(dateKey, habits, logs));
+  const trendWindowOptions = selectableEndDates.map((dateKey) => buildTrendWindowOption(dateKey, habits, logs));
+  const filteredTrendWindowOptions = filterTrendWindowOptions(trendWindowOptions, rangeFilter);
+  const quickWindowOptions = trendWindowOptions.slice(0, 3);
+  const closeRangePicker = () => setRangePickerOpen(false);
+  const rangeSheetPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dy) > 6 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
+        onPanResponderMove: (_, gestureState) => {
+          sheetTranslateY.setValue(clamp(gestureState.dy, -56, 320));
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          const shouldClose = gestureState.dy > 90 || gestureState.vy > 1.1;
+
+          if (shouldClose) {
+            Animated.timing(sheetTranslateY, {
+              toValue: 420,
+              duration: 180,
+              useNativeDriver: true,
+            }).start(() => {
+              sheetTranslateY.setValue(0);
+              closeRangePicker();
+            });
+            return;
+          }
+
+          Animated.spring(sheetTranslateY, {
+            toValue: 0,
+            damping: 18,
+            stiffness: 180,
+            mass: 0.9,
+            useNativeDriver: true,
+          }).start();
+        },
+      }),
+    [closeRangePicker, sheetTranslateY],
+  );
+
+  useEffect(() => {
+    if (isRangePickerOpen) {
+      sheetTranslateY.setValue(0);
+    }
+  }, [isRangePickerOpen, sheetTranslateY]);
 
   const weekScheduled = sum(weeklyTrend.map((day) => day.scheduledCount));
   const weekCompleted = sum(weeklyTrend.map((day) => day.completedCount));
@@ -90,7 +151,8 @@ export default function AnalyticsScreen() {
   const streakBalance = habits.length ? Math.min(100, Math.round((currentStreak / habits.length) * 18)) : 0;
   const consistencyScore = clamp(Math.round(weeklyCompletionRate * 0.65 + averageHabitRate * 0.25 + streakBalance * 0.1), 0, 100);
 
-  const chartWidth = Math.max(width - 40 - 24 - CHART_SIDE_LABEL_WIDTH - CHART_RIGHT_PADDING, 220);
+  const chartWidth = Math.max(width - 40 - 36 - CHART_SIDE_LABEL_WIDTH - CHART_RIGHT_PADDING, 212);
+  const footerItemWidth = Math.max(Math.floor((chartWidth - 8) / weeklyTrend.length), isNarrowChart ? 36 : 40);
   const chartPoints = buildChartPoints(weeklyTrend, chartWidth, CHART_HEIGHT);
   const ringTicks = buildRingTicks(weeklyCompletionRate, ringSize, ringRadius, ringTickHeight);
   const scoreTone = getScoreTone(consistencyScore);
@@ -98,6 +160,46 @@ export default function AnalyticsScreen() {
   const deltaPrefix = weeklyDelta > 0 ? '+' : '';
   const rangeLabel = `${format(parseISO(last7Days[0]), 'MMM d')} - ${format(parseISO(last7Days[last7Days.length - 1]), 'MMM d')}`;
   const selectedEndDateLabel = getRelativeDateLabel(selectedEndDateKey);
+  const analyticsPalette = {
+    heroBackground: isLight ? '#ffffff' : tokens.surface,
+    heroBorder: isLight ? '#d8e4f0' : tokens.border,
+    heroShadow: isLight ? '#b7c7db' : '#000000',
+    heroEyebrow: isLight ? tokens.textMuted : tokens.text,
+    heroValue: tokens.text,
+    heroMessage: tokens.textMuted,
+    ringActive: isLight ? tokens.primary : '#4f83ff',
+    ringInactive: isLight ? '#d7e3f4' : '#314663',
+    ringInner: isLight ? '#eef4fb' : tokens.background,
+    deltaIcon: isLight ? tokens.primary : '#6ea2ff',
+    deltaValue: isLight ? tokens.primary : '#66a0ff',
+    deltaLabel: isLight ? '#64748b' : '#9cb2cf',
+    metricBackground: isLight ? '#ffffff' : tokens.surface,
+    metricBorder: isLight ? '#d8e4f0' : tokens.border,
+    metricTitle: isLight ? tokens.textMuted : '#d8e5f6',
+    metricValue: tokens.text,
+    metricSuffix: isLight ? '#334155' : '#dbe7f8',
+    metricDetail: tokens.textMuted,
+    chartBackground: isLight ? '#ffffff' : tokens.surface,
+    chartBorder: isLight ? '#d8e4f0' : tokens.border,
+    chartTitle: tokens.text,
+    rangeChipBackground: isLight ? '#eef4fb' : 'rgba(18, 32, 55, 0.94)',
+    rangeChipEyebrow: isLight ? '#64748b' : '#8ea3bf',
+    rangeChipText: tokens.text,
+    rangeChipIcon: isLight ? '#475569' : '#c9d7eb',
+    axisLabel: isLight ? '#64748b' : '#8ea3bf',
+    gridStrong: isLight ? 'rgba(148, 163, 184, 0.36)' : 'rgba(105, 131, 164, 0.38)',
+    gridSoft: isLight ? 'rgba(148, 163, 184, 0.2)' : 'rgba(105, 131, 164, 0.22)',
+    verticalLine: isLight ? 'rgba(148, 163, 184, 0.18)' : 'rgba(105, 131, 164, 0.14)',
+    chartSegment: isLight ? tokens.primary : '#5a8dff',
+    chartAreaFill: isLight ? 'rgba(37, 99, 235, 0.12)' : 'rgba(58, 116, 255, 0.12)',
+    pointOuter: isLight ? '#93c5fd' : '#8db2ff',
+    pointInner: isLight ? tokens.primary : '#4e83ff',
+    pointValue: tokens.text,
+    footerActiveBackground: isLight ? 'rgba(37, 99, 235, 0.12)' : 'rgba(78, 131, 255, 0.18)',
+    footerActiveText: tokens.text,
+    footerInactiveLabel: isLight ? '#64748b' : '#8ea3bf',
+    footerInactiveDate: isLight ? '#475569' : '#dbe7f8',
+  };
 
   return (
     <ScreenShell
@@ -108,17 +210,17 @@ export default function AnalyticsScreen() {
         style={[
           styles.heroCard,
           {
-            backgroundColor: '#0c1729',
-            borderColor: '#1f3658',
-            shadowColor: '#000000',
+            backgroundColor: analyticsPalette.heroBackground,
+            borderColor: analyticsPalette.heroBorder,
+            shadowColor: analyticsPalette.heroShadow,
           },
         ]}
       >
         <View style={styles.heroContent}>
           <View style={[styles.heroTextBlock, isCompact && styles.heroTextBlockCompact]}>
-            <Text style={[styles.eyebrow, { color: tokens.text }]}>Completion rate</Text>
-            <Text style={[styles.heroRate, isCompact && styles.heroRateCompact, { color: '#f8fbff' }]}>{weeklyCompletionRate}%</Text>
-            <Text style={[styles.heroMessage, isCompact && styles.heroMessageCompact, { color: '#a8bbd4' }]}>{completionTone}</Text>
+            <Text style={[styles.eyebrow, { color: analyticsPalette.heroEyebrow }]}>Completion rate</Text>
+            <Text style={[styles.heroRate, isCompact && styles.heroRateCompact, { color: analyticsPalette.heroValue }]}>{weeklyCompletionRate}%</Text>
+            <Text style={[styles.heroMessage, isCompact && styles.heroMessageCompact, { color: analyticsPalette.heroMessage }]}>{completionTone}</Text>
           </View>
 
           <View style={[styles.ringWrap, { width: ringSize, height: ringSize }]}>
@@ -132,7 +234,7 @@ export default function AnalyticsScreen() {
                       left: tick.left,
                       top: tick.top,
                       height: ringTickHeight,
-                      backgroundColor: tick.active ? '#4f83ff' : '#314663',
+                      backgroundColor: tick.active ? analyticsPalette.ringActive : analyticsPalette.ringInactive,
                       transform: [{ rotate: `${tick.angle + 90}deg` }],
                     },
                   ]}
@@ -147,15 +249,15 @@ export default function AnalyticsScreen() {
                     top: ringInnerInset,
                     width: ringSize - ringInnerInset * 2,
                     height: ringSize - ringInnerInset * 2,
-                    backgroundColor: '#09101b',
+                    backgroundColor: analyticsPalette.ringInner,
                   },
                 ]}
               >
                 <View style={styles.deltaRow}>
-                  <Ionicons name={weeklyDelta >= 0 ? 'trending-up' : 'trending-down'} size={18} color="#6ea2ff" />
-                  <Text style={styles.deltaValue}>{deltaPrefix}{weeklyDelta}%</Text>
+                  <Ionicons name={weeklyDelta >= 0 ? 'trending-up' : 'trending-down'} size={18} color={analyticsPalette.deltaIcon} />
+                  <Text style={[styles.deltaValue, { color: analyticsPalette.deltaValue }]}>{deltaPrefix}{weeklyDelta}%</Text>
                 </View>
-                <Text style={styles.deltaLabel}>vs last week</Text>
+                <Text style={[styles.deltaLabel, { color: analyticsPalette.deltaLabel }]}>vs last week</Text>
               </View>
             </View>
           </View>
@@ -171,6 +273,7 @@ export default function AnalyticsScreen() {
             suffix="days"
             detail={`Best: ${bestStreak} days`}
             compact={isCompact}
+            palette={analyticsPalette}
           />
           <MetricTile
             title="Completed this week"
@@ -179,6 +282,7 @@ export default function AnalyticsScreen() {
             suffix={`of ${weekScheduled || 0}`}
             detail={`${weeklyCompletionRate}% of habits`}
             compact={isCompact}
+            palette={analyticsPalette}
           />
         </View>
 
@@ -189,6 +293,7 @@ export default function AnalyticsScreen() {
           suffix={scoreTone.title}
           detail={scoreTone.detail}
           fullWidth
+          palette={analyticsPalette}
         />
       </View>
 
@@ -196,30 +301,34 @@ export default function AnalyticsScreen() {
         style={[
           styles.chartCard,
           {
-            backgroundColor: '#0c1729',
-            borderColor: '#1f3658',
+            backgroundColor: analyticsPalette.chartBackground,
+            borderColor: analyticsPalette.chartBorder,
           },
         ]}
       >
-        <View style={styles.chartHeader}>
-          <Text style={[styles.chartTitle, { color: '#f8fbff' }]}>Weekly trend</Text>
+        <View style={[styles.chartHeader, isNarrowChart && styles.chartHeaderStacked]}>
+          <Text style={[styles.chartTitle, { color: analyticsPalette.chartTitle }]}>Weekly trend</Text>
           <Pressable
             accessibilityRole="button"
-            style={[styles.rangeChip, { borderColor: tokens.border, backgroundColor: 'rgba(18, 32, 55, 0.94)' }]}
+            style={[
+              styles.rangeChip,
+              isNarrowChart && styles.rangeChipStacked,
+              { borderColor: tokens.border, backgroundColor: analyticsPalette.rangeChipBackground },
+            ]}
             onPress={() => setRangePickerOpen(true)}
           >
             <View style={styles.rangeChipTextWrap}>
-              <Text style={[styles.rangeChipEyebrow, { color: '#8ea3bf' }]}>Last 7 days</Text>
-              <Text style={[styles.rangeChipText, { color: '#f8fbff' }]}>{rangeLabel}</Text>
+              <Text style={[styles.rangeChipEyebrow, { color: analyticsPalette.rangeChipEyebrow }]}>Last 7 days</Text>
+              <Text style={[styles.rangeChipText, { color: analyticsPalette.rangeChipText }]}>{rangeLabel}</Text>
             </View>
-            <Ionicons name="chevron-down" size={16} color="#c9d7eb" />
+            <Ionicons name="chevron-down" size={16} color={analyticsPalette.rangeChipIcon} />
           </Pressable>
         </View>
 
         <View style={styles.chartFrame}>
           <View style={styles.yAxis}>
             {[100, 75, 50, 25, 0].map((label) => (
-              <Text key={label} style={[styles.axisLabel, { color: '#8ea3bf' }]}>
+              <Text key={label} style={[styles.axisLabel, { color: analyticsPalette.axisLabel }]}>
                 {label}%
               </Text>
             ))}
@@ -236,7 +345,7 @@ export default function AnalyticsScreen() {
                       styles.gridLine,
                       {
                         top,
-                        borderColor: label === 0 ? 'rgba(105, 131, 164, 0.38)' : 'rgba(105, 131, 164, 0.22)',
+                        borderColor: label === 0 ? analyticsPalette.gridStrong : analyticsPalette.gridSoft,
                       },
                     ]}
                   />
@@ -244,7 +353,13 @@ export default function AnalyticsScreen() {
               })}
 
               {chartPoints.map((point) => (
-                <View key={`vertical-${point.label}`} style={[styles.verticalLine, { left: point.x, height: CHART_HEIGHT - CHART_BOTTOM_LABEL_HEIGHT }]} />
+                <View
+                  key={`vertical-${point.label}`}
+                  style={[
+                    styles.verticalLine,
+                    { left: point.x, height: CHART_HEIGHT - CHART_BOTTOM_LABEL_HEIGHT, backgroundColor: analyticsPalette.verticalLine },
+                  ]}
+                />
               ))}
 
               {chartPoints.slice(0, -1).map((point, index) => {
@@ -259,13 +374,22 @@ export default function AnalyticsScreen() {
                 return (
                   <View
                     key={`segment-${point.label}`}
-                    style={[styles.chartSegment, { left: left + dx / 2 - length / 2, top: top + dy / 2 - 2, width: length, transform: [{ rotate: `${angle}deg` }] }]}
+                    style={[
+                      styles.chartSegment,
+                      {
+                        left: left + dx / 2 - length / 2,
+                        top: top + dy / 2 - 2,
+                        width: length,
+                        backgroundColor: analyticsPalette.chartSegment,
+                        transform: [{ rotate: `${angle}deg` }],
+                      },
+                    ]}
                   />
                 );
               })}
 
               {chartPoints.map((point) => (
-                <View key={`fill-${point.label}`} style={[styles.areaFill, point.fillStyle]} />
+                <View key={`fill-${point.label}`} style={[styles.areaFill, point.fillStyle, { backgroundColor: analyticsPalette.chartAreaFill }]} />
               ))}
 
               {chartPoints.map((point, index) => (
@@ -274,9 +398,9 @@ export default function AnalyticsScreen() {
                     style={[
                       styles.pointValue,
                       {
-                        left: point.x - 18,
+                        left: clamp(point.x - CHART_POINT_LABEL_WIDTH / 2, 0, chartWidth - CHART_POINT_LABEL_WIDTH),
                         top: point.y - 32,
-                        color: '#f8fbff',
+                        color: analyticsPalette.pointValue,
                       },
                     ]}
                   >
@@ -288,10 +412,11 @@ export default function AnalyticsScreen() {
                       {
                         left: point.x - CHART_DOT_SIZE / 2,
                         top: point.y - CHART_DOT_SIZE / 2,
+                        backgroundColor: analyticsPalette.pointOuter,
                       },
                     ]}
                   >
-                    <View style={styles.pointInner} />
+                    <View style={[styles.pointInner, { backgroundColor: analyticsPalette.pointInner }]} />
                   </View>
                 </View>
               ))}
@@ -305,11 +430,29 @@ export default function AnalyticsScreen() {
                     key={`footer-${day.dateKey}`}
                     style={[
                       styles.footerDayItem,
+                      { width: footerItemWidth },
+                      isNarrowChart && styles.footerDayItemCompact,
                       isRangeEnd && styles.footerDayItemActive,
+                      isRangeEnd && { backgroundColor: analyticsPalette.footerActiveBackground },
                     ]}
                   >
-                    <Text style={[styles.footerDayLabel, { color: isRangeEnd ? '#f8fbff' : '#8ea3bf' }]}>{day.label}</Text>
-                    <Text style={[styles.footerDayDate, { color: isRangeEnd ? '#f8fbff' : '#dbe7f8' }]}>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.footerDayLabel,
+                        isNarrowChart && styles.footerDayLabelCompact,
+                        { color: isRangeEnd ? analyticsPalette.footerActiveText : analyticsPalette.footerInactiveLabel },
+                      ]}
+                    >
+                      {day.label}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.footerDayDate,
+                        isNarrowChart && styles.footerDayDateCompact,
+                        { color: isRangeEnd ? analyticsPalette.footerActiveText : analyticsPalette.footerInactiveDate },
+                      ]}
+                    >
                       {format(parseISO(day.dateKey), 'd')}
                     </Text>
                   </View>
@@ -320,16 +463,23 @@ export default function AnalyticsScreen() {
         </View>
       </View>
 
-      <Modal transparent animationType="fade" visible={isRangePickerOpen} onRequestClose={() => setRangePickerOpen(false)}>
+      <Modal transparent animationType="fade" visible={isRangePickerOpen} onRequestClose={closeRangePicker}>
         <View style={styles.modalRoot}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setRangePickerOpen(false)} />
-          <View style={[styles.modalSheet, { backgroundColor: tokens.surface, borderColor: tokens.border }]}>
-            <View style={styles.modalHandle} />
+          <Pressable style={styles.modalBackdrop} onPress={closeRangePicker} />
+          <Animated.View
+            style={[
+              styles.modalSheet,
+              { backgroundColor: tokens.surface, borderColor: tokens.border, transform: [{ translateY: sheetTranslateY }] },
+            ]}
+          >
+            <View {...rangeSheetPanResponder.panHandlers} style={styles.modalDragZone}>
+              <View style={styles.modalHandle} />
+            </View>
             <View style={styles.modalHeader}>
               <View style={styles.modalHeaderText}>
                 <Text style={[styles.modalTitle, { color: tokens.text }]}>Choose end date</Text>
                 <Text style={[styles.modalSubtitle, { color: tokens.textMuted }]}>
-                  Move the 7-day trend window anywhere within the last month.
+                  Slide the 7-day window through the last month and compare stronger or weaker stretches faster.
                 </Text>
               </View>
               <Pressable
@@ -348,14 +498,71 @@ export default function AnalyticsScreen() {
               </Text>
             </View>
 
+            <View style={styles.quickPickerSection}>
+              <Text style={[styles.sectionLabel, { color: tokens.textMuted }]}>Jump to</Text>
+              <View style={styles.quickChipRow}>
+                {quickWindowOptions.map((option) => {
+                  const isSelected = option.dateKey === selectedEndDateKey;
+                  return (
+                    <Pressable
+                      key={`quick-${option.dateKey}`}
+                      accessibilityRole="button"
+                      style={[
+                        styles.quickChip,
+                        {
+                          backgroundColor: isSelected ? tokens.primary : tokens.mode === 'light' ? '#ffffff' : tokens.surfaceMuted,
+                          borderColor: isSelected ? tokens.primary : tokens.border,
+                        },
+                      ]}
+                      onPress={() => {
+                        setSelectedEndDateKey(option.dateKey);
+                        closeRangePicker();
+                      }}
+                    >
+                      <Text style={[styles.quickChipLabel, { color: isSelected ? '#ffffff' : tokens.text }]}>{option.relativeLabel}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.quickPickerSection}>
+              <Text style={[styles.sectionLabel, { color: tokens.textMuted }]}>Browse windows</Text>
+              <View style={styles.filterRow}>
+                {([
+                  { key: 'recent', label: 'Recent' },
+                  { key: 'weekly', label: 'Weekly' },
+                  { key: 'all', label: 'All dates' },
+                ] as const).map((filterOption) => {
+                  const isActive = rangeFilter === filterOption.key;
+                  return (
+                    <Pressable
+                      key={filterOption.key}
+                      accessibilityRole="button"
+                      style={[
+                        styles.filterChip,
+                        {
+                          backgroundColor: isActive ? tokens.primarySoft : tokens.mode === 'light' ? '#ffffff' : tokens.surfaceMuted,
+                          borderColor: isActive ? tokens.primary : tokens.border,
+                        },
+                      ]}
+                      onPress={() => setRangeFilter(filterOption.key)}
+                    >
+                      <Text style={[styles.filterChipText, { color: isActive ? tokens.primary : tokens.text }]}>{filterOption.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.optionList}>
-              {selectableEndDates.map((dateKey) => {
-                const isSelected = dateKey === selectedEndDateKey;
-                const optionRange = getDayKeysEndingOn(dateKey, 7);
+              {filteredTrendWindowOptions.map((option) => {
+                const isSelected = option.dateKey === selectedEndDateKey;
+                const deltaPrefix = option.delta > 0 ? '+' : '';
 
                 return (
                   <Pressable
-                    key={dateKey}
+                    key={option.dateKey}
                     accessibilityRole="button"
                     style={[
                       styles.optionRow,
@@ -365,22 +572,38 @@ export default function AnalyticsScreen() {
                       },
                     ]}
                     onPress={() => {
-                      setSelectedEndDateKey(dateKey);
-                      setRangePickerOpen(false);
+                      setSelectedEndDateKey(option.dateKey);
+                      closeRangePicker();
                     }}
                   >
                     <View style={styles.optionText}>
-                      <Text style={[styles.optionTitle, { color: tokens.text }]}>{getRelativeDateLabel(dateKey)}</Text>
-                      <Text style={[styles.optionSubtitle, { color: tokens.textMuted }]}>
-                        {format(parseISO(optionRange[0]), 'MMM d')} - {format(parseISO(optionRange[optionRange.length - 1]), 'MMM d')}
-                      </Text>
+                      <View style={styles.optionHeader}>
+                        <Text style={[styles.optionTitle, { color: tokens.text }]}>{option.relativeLabel}</Text>
+                        <View
+                          style={[
+                            styles.optionRateBadge,
+                            { backgroundColor: isSelected ? 'rgba(255,255,255,0.22)' : tokens.primarySoft },
+                          ]}
+                        >
+                          <Text style={[styles.optionRateText, { color: isSelected ? '#ffffff' : tokens.primary }]}>{option.percentage}%</Text>
+                        </View>
+                      </View>
+                      <Text style={[styles.optionSubtitle, { color: tokens.textMuted }]}>{option.rangeLabel}</Text>
+                      <View style={styles.optionMetaRow}>
+                        <Text style={[styles.optionMetaText, { color: tokens.textMuted }]}>
+                          {option.completedCount}/{option.scheduledCount || 0} completed
+                        </Text>
+                        <Text style={[styles.optionMetaText, { color: option.delta >= 0 ? tokens.primary : '#ef4444' }]}>
+                          {deltaPrefix}{option.delta}% vs prior
+                        </Text>
+                      </View>
                     </View>
                     {isSelected ? <Ionicons name="checkmark-circle" size={22} color={tokens.primary} /> : null}
                   </Pressable>
                 );
               })}
             </ScrollView>
-          </View>
+          </Animated.View>
         </View>
       </Modal>
     </ScreenShell>
@@ -395,6 +618,7 @@ function MetricTile({
   detail,
   compact,
   fullWidth,
+  palette,
 }: {
   title: string;
   icon: ReactNode;
@@ -403,14 +627,29 @@ function MetricTile({
   detail: string;
   compact?: boolean;
   fullWidth?: boolean;
+  palette: {
+    metricBackground: string;
+    metricBorder: string;
+    metricTitle: string;
+    metricValue: string;
+    metricSuffix: string;
+    metricDetail: string;
+  };
 }) {
   return (
-    <View style={[styles.metricTile, compact && styles.metricTileCompact, fullWidth && styles.metricTileFullWidth]}>
+    <View
+      style={[
+        styles.metricTile,
+        compact && styles.metricTileCompact,
+        fullWidth && styles.metricTileFullWidth,
+        { backgroundColor: palette.metricBackground, borderColor: palette.metricBorder },
+      ]}
+    >
       <View style={styles.metricIconWrap}>{icon}</View>
-      <Text style={[styles.metricTitle, compact && styles.metricTitleCompact]}>{title}</Text>
-      <Text style={[styles.metricValue, compact && styles.metricValueCompact]}>{value}</Text>
-      <Text style={[styles.metricSuffix, compact && styles.metricSuffixCompact]}>{suffix}</Text>
-      <Text style={[styles.metricDetail, compact && styles.metricDetailCompact]}>{detail}</Text>
+      <Text style={[styles.metricTitle, compact && styles.metricTitleCompact, { color: palette.metricTitle }]}>{title}</Text>
+      <Text style={[styles.metricValue, compact && styles.metricValueCompact, { color: palette.metricValue }]}>{value}</Text>
+      <Text style={[styles.metricSuffix, compact && styles.metricSuffixCompact, { color: palette.metricSuffix }]}>{suffix}</Text>
+      <Text style={[styles.metricDetail, compact && styles.metricDetailCompact, { color: palette.metricDetail }]}>{detail}</Text>
     </View>
   );
 }
@@ -427,13 +666,49 @@ function getSelectableEndDateKeys(days: number) {
   return Array.from({ length: days }, (_, index) => format(subDays(today, index), 'yyyy-MM-dd'));
 }
 
+function buildTrendWindowOption(dateKey: string, habits: Habit[], logs: HabitLog[]): TrendWindowOption {
+  const days = getDayKeysEndingOn(dateKey, 7);
+  const previousDays = getDayKeysEndingOn(format(subDays(parseISO(dateKey), 7), 'yyyy-MM-dd'), 7);
+  const trend = days.map((dayKey) => buildDayTrend(dayKey, habits, logs));
+  const previousTrend = previousDays.map((dayKey) => buildDayTrend(dayKey, habits, logs));
+  const scheduledCount = sum(trend.map((day) => day.scheduledCount));
+  const completedCount = sum(trend.map((day) => day.completedCount));
+  const percentage = scheduledCount ? Math.round((completedCount / scheduledCount) * 100) : 0;
+  const previousScheduledCount = sum(previousTrend.map((day) => day.scheduledCount));
+  const previousCompletedCount = sum(previousTrend.map((day) => day.completedCount));
+  const previousPercentage = previousScheduledCount ? Math.round((previousCompletedCount / previousScheduledCount) * 100) : 0;
+
+  return {
+    dateKey,
+    relativeLabel: getRelativeDateLabel(dateKey),
+    rangeLabel: `${format(parseISO(days[0]), 'MMM d')} - ${format(parseISO(days[days.length - 1]), 'MMM d')}`,
+    percentage,
+    completedCount,
+    scheduledCount,
+    delta: percentage - previousPercentage,
+  };
+}
+
+function filterTrendWindowOptions(options: TrendWindowOption[], filter: RangeFilter) {
+  if (filter === 'recent') {
+    return options.slice(0, 7);
+  }
+  if (filter === 'weekly') {
+    return options.filter((_, index) => index % 7 === 0);
+  }
+  return options;
+}
+
 function buildDayTrend(dateKey: string, habits: Habit[], logs: HabitLog[]): DayTrend {
-  const scheduledHabits = habits.filter((habit) => isHabitScheduledForDate(habit, dateKey, logs));
-  const completedCount = scheduledHabits.filter((habit) => {
+  const dayHabits = habits.filter((habit) => {
+    const log = getHabitLogForDate(logs, habit.id, dateKey);
+    return Boolean(log) || isHabitScheduledForDate(habit, dateKey, logs);
+  });
+  const completedCount = dayHabits.filter((habit) => {
     const log = getHabitLogForDate(logs, habit.id, dateKey);
     return log?.status === 'completed';
   }).length;
-  const scheduledCount = scheduledHabits.length;
+  const scheduledCount = dayHabits.length;
   const percentage = scheduledCount ? Math.round((completedCount / scheduledCount) * 100) : 0;
 
   return {
@@ -467,7 +742,7 @@ function buildRingTicks(percentage: number, ringSize: number, ringRadius: number
 
 function buildChartPoints(days: DayTrend[], chartWidth: number, chartHeight: number) {
   const innerHeight = chartHeight - CHART_BOTTOM_LABEL_HEIGHT - CHART_TOP_PADDING;
-  const horizontalInset = 12;
+  const horizontalInset = Math.min(CHART_HORIZONTAL_INSET, Math.max(12, chartWidth * 0.06));
   const usableWidth = Math.max(chartWidth - horizontalInset * 2, 0);
   const step = days.length > 1 ? usableWidth / (days.length - 1) : 0;
 
@@ -637,9 +912,7 @@ const styles = StyleSheet.create({
   metricTile: {
     flexGrow: 1,
     flexBasis: 0,
-    backgroundColor: '#0c1729',
     borderWidth: 1,
-    borderColor: '#1f3658',
     borderRadius: 26,
     padding: 18,
     gap: 10,
@@ -660,7 +933,6 @@ const styles = StyleSheet.create({
     right: 14,
   },
   metricTitle: {
-    color: '#d8e5f6',
     fontSize: 16,
     lineHeight: 24,
     fontWeight: '500',
@@ -675,7 +947,6 @@ const styles = StyleSheet.create({
     fontSize: 28,
   },
   metricValue: {
-    color: '#f8fbff',
     fontSize: 42,
     lineHeight: 46,
     fontWeight: '800',
@@ -685,7 +956,6 @@ const styles = StyleSheet.create({
     lineHeight: 38,
   },
   metricSuffix: {
-    color: '#dbe7f8',
     fontSize: 18,
     lineHeight: 24,
     fontWeight: '500',
@@ -696,7 +966,6 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   metricDetail: {
-    color: '#8ea3bf',
     fontSize: 14,
     lineHeight: 20,
   },
@@ -718,9 +987,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
   },
+  chartHeaderStacked: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
   chartTitle: {
     fontSize: 20,
     fontWeight: '700',
+    flexShrink: 1,
   },
   rangeChip: {
     minHeight: 46,
@@ -730,6 +1005,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  rangeChipStacked: {
+    alignSelf: 'stretch',
+    justifyContent: 'space-between',
   },
   rangeChipTextWrap: {
     minWidth: 104,
@@ -778,18 +1057,15 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: CHART_TOP_PADDING,
     width: 1,
-    backgroundColor: 'rgba(105, 131, 164, 0.14)',
   },
   chartSegment: {
     position: 'absolute',
     height: 4,
     borderRadius: 999,
-    backgroundColor: '#5a8dff',
   },
   areaFill: {
     position: 'absolute',
     marginLeft: -2,
-    backgroundColor: 'rgba(58, 116, 255, 0.12)',
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
   },
@@ -798,7 +1074,6 @@ const styles = StyleSheet.create({
     width: CHART_DOT_SIZE,
     height: CHART_DOT_SIZE,
     borderRadius: 999,
-    backgroundColor: '#8db2ff',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -806,7 +1081,6 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 999,
-    backgroundColor: '#4e83ff',
   },
   pointValue: {
     position: 'absolute',
@@ -817,19 +1091,25 @@ const styles = StyleSheet.create({
   },
   chartFooter: {
     minHeight: CHART_BOTTOM_LABEL_HEIGHT,
-    paddingTop: 8,
+    paddingTop: 6,
     paddingHorizontal: 4,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
   },
   footerDayItem: {
-    minWidth: 34,
-    paddingVertical: 6,
+    minHeight: CHART_BOTTOM_LABEL_HEIGHT - 6,
+    paddingVertical: 4,
     paddingHorizontal: 4,
     borderRadius: 14,
     alignItems: 'center',
-    gap: 2,
+    justifyContent: 'center',
+    gap: 1,
+  },
+  footerDayItemCompact: {
+    minHeight: CHART_BOTTOM_LABEL_HEIGHT - 10,
+    paddingVertical: 3,
+    paddingHorizontal: 2,
   },
   footerDayItemActive: {
     backgroundColor: 'rgba(78, 131, 255, 0.18)',
@@ -839,9 +1119,16 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.6,
   },
+  footerDayLabelCompact: {
+    fontSize: 9,
+    letterSpacing: 0.3,
+  },
   footerDayDate: {
     fontSize: 12,
     fontWeight: '700',
+  },
+  footerDayDateCompact: {
+    fontSize: 11,
   },
   modalRoot: {
     flex: 1,
@@ -872,6 +1159,9 @@ const styles = StyleSheet.create({
     height: 5,
     borderRadius: 999,
     backgroundColor: 'rgba(148, 163, 184, 0.45)',
+  },
+  modalDragZone: {
+    paddingBottom: 4,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -913,6 +1203,49 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
+  quickPickerSection: {
+    gap: 10,
+  },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+  },
+  quickChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  quickChip: {
+    minHeight: 38,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickChipLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  filterRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  filterChip: {
+    minHeight: 40,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterChipText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
   optionList: {
     gap: 10,
     paddingBottom: 12,
@@ -930,12 +1263,40 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 3,
   },
+  optionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
   optionTitle: {
     fontSize: 16,
     fontWeight: '700',
+    flex: 1,
+  },
+  optionRateBadge: {
+    minWidth: 52,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    alignItems: 'center',
+  },
+  optionRateText: {
+    fontSize: 12,
+    fontWeight: '800',
   },
   optionSubtitle: {
     fontSize: 13,
     lineHeight: 18,
+  },
+  optionMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginTop: 2,
+  },
+  optionMetaText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

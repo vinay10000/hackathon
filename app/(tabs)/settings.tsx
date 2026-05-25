@@ -1,7 +1,6 @@
 import type React from 'react';
-import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { Alert, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Alert, Image, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { PrimaryButton } from '@/src/components/primary-button';
 import { ScreenShell } from '@/src/components/screen-shell';
@@ -79,12 +78,12 @@ export default function SettingsScreen() {
                 style={[
                   styles.profileAvatarButton,
                   {
-                    backgroundColor: avatar.color,
+                    backgroundColor: avatar.accent,
                     borderColor: selected ? tokens.text : tokens.border,
                   },
                 ]}
               >
-                <Ionicons name={avatar.icon} size={20} color="#ffffff" />
+                <Image source={{ uri: avatar.imageUri }} style={styles.profileAvatarImage} />
               </Pressable>
             );
           })}
@@ -243,6 +242,11 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  profileAvatarImage: {
+    width: 42,
+    height: 42,
+    borderRadius: 15,
   },
   warning: {
     lineHeight: 20,

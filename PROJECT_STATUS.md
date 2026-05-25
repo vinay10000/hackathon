@@ -34,13 +34,20 @@
 - Added settings surfaces for profile/session, sync status, reminders, AI controls, telemetry privacy, premium status, help, legal, export, and account/data deletion entry points
 - Added local-first premium entitlement seam for gating future multiple reminders, streak freeze, export, backup, premium analytics, and AI limits
 - Added local-first account/sync seam for guest mode, email session upgrade, queued sync status, and offline-safe persistence
-- Added Firebase Auth foundation using `google-services.json`, with native in-app Email/Password sign-in/create-account and Android native Google Sign-In entry points
+- Added Firebase Auth foundation using `google-services.json`, with Android native Google Sign-In, guest continuation, and a passwordless email-link sign-in flow
 - Replaced Assistant placeholder with editable text command previews, confirmation/cancel UX, ambiguity handling, microphone permission state, and local AI command history deletion
 - Added local Assistant execution for confirmed complete, skip, archive, restore, delete, note, and measurable log commands
 - Integrated `expo-speech-recognition` for microphone permissions, start/stop listening, live transcript capture, speech errors, and typed fallback in Assistant
 - Added local data export seam, privacy-safe telemetry helper, and confirmed local data reset/account-deletion flow
 - Added delete confirmation for habit detail destructive actions
 - Extended AMOLED/theme token support into shared stat cards, empty states, habit cards, and habit creation/edit forms
+- Added swipe actions on Today habit rows for archive, edit, and delete
+- Refreshed the habit detail screen to match the Today screen's card-heavy visual style
+- Refreshed create and edit habit screens with a more native, card-based form flow
+- Improved light-theme UI across Today, habit details, and create/edit habit flows
+- Added a Today-screen `test2` button that schedules a short burst of local test notifications using the existing habit reminder notification system
+- Added a Today-screen `10 habits` test button plus a wider wrapped action row so test controls are easier to tap
+- Updated new-habit save flow to return to Today instead of opening habit details
 - Verified `npm run typecheck`
 - Verified `npx expo export --platform web`
 - Verified EAS Android preview APK build with profile `preview`
@@ -66,8 +73,8 @@
 ## Current Caveats
 - Assistant tab is a local safety implementation with `expo-speech-recognition`; it previews, records, and executes supported confirmed local commands, but does not call remote AI services yet
 - Reminders are implemented as a first pass and are strongest for daily or weekday habits; more complex schedule-aware reminder behavior still needs refinement
-- Theme preference and AMOLED support are implemented across shell, tabs, settings, assistant, shared stat/empty/habit cards, and habit forms; remaining older analytics/calendar/detail surfaces still need final visual polish
-- Firebase Auth is wired for Email/Password and Android native Google Sign-In; Firestore sync, analytics, crash reporting, and policy URLs are still pending
+- Theme preference and AMOLED support are implemented across shell, tabs, settings, assistant, shared stat/empty/habit cards, habit detail, and the refreshed create/edit habit forms; analytics and calendar still need final visual polish
+- Firebase Auth is wired for Android native Google Sign-In plus passwordless email-link sign-in; this is not a true numeric email OTP flow and may still need finalized authorized-domain/deep-link handling for production polish
 - RevenueCat is not needed for the current build; premium remains a local entitlement seam only
 - Google Sign-In may require SHA-1/SHA-256 fingerprints added in Firebase and a refreshed `google-services.json` before ID tokens work on-device
 - Calendar and analytics are functional but still MVP-level, not fully polished production visuals
@@ -87,3 +94,16 @@
 - 2026-05-24: Added Expo speech recognition to Assistant with live editable transcription and permission/error handling
 - 2026-05-24: Added Firebase Auth with Email/Password and Android native Google Sign-In wiring
 - 2026-05-24: Created and linked EAS project, configured preview APK builds, and produced a native Android preview APK
+- 2026-05-25: Added Today-screen swipe actions and restyled habit detail to match the newer Today UI language
+- 2026-05-25: Reworked create and edit habit flows into native-feeling card layouts with a shared mobile-first habit form
+- 2026-05-25: Rebalanced light-theme styling for Today, habit details, and create/edit screens away from dark-card treatments
+- 2026-05-25: Added a Today-screen `test2` notification burst trigger wired through the existing `expo-notifications` reminder path
+- 2026-05-25: Added a Today-screen `10 habits` seed action and fixed cramped test-button tap targets with a wrapped full-width action row
+- 2026-05-25: Changed new habit creation to route back to Today instead of opening the habit detail screen
+- 2026-05-25: Tightened the Analytics weekly trend card on narrow screens so the range chip, last data label, and footer day pills no longer crowd the card edges
+- 2026-05-25: Increased the Analytics weekly trend footer height budget so the weekday/date pills stay inside the card instead of spilling below the chart on-device
+- 2026-05-25: Fixed Analytics weekly trend so past logged completions still appear in the 7-day chart instead of dropping out when flexible schedules like times-per-week or times-per-month are later satisfied
+- 2026-05-25: Upgraded the Analytics 7-day range picker with quick jump chips, recent/weekly/all filters, and per-window completion previews so browsing past trend windows is faster and clearer
+- 2026-05-25: Made the Analytics weekly trend range picker behave like a draggable bottom sheet, so it can be pulled up slightly and swiped down to dismiss from the handle area
+- 2026-05-25: Rebuilt auth to match the new branded mockup direction, replaced the Apple slot with guest continuation, and switched email auth to Firebase passwordless email-link sign-in with manual link fallback
+- 2026-05-25: Replaced the old onboarding form with a branded image-led welcome screen using `assets/images/onboarding-1.png`, and fixed first-run routing so onboarding shows before auth

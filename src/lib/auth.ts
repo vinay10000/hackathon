@@ -1,8 +1,12 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GoogleSignin, isErrorWithCode, isSuccessResponse, statusCodes } from '@react-native-google-signin/google-signin';
-import { createUserWithEmailAndPassword, GoogleAuthProvider, signInWithCredential, signInWithEmailAndPassword, signOut, User } from 'firebase/auth';
+import { GoogleAuthProvider, isSignInWithEmailLink, sendSignInLinkToEmail, signInWithCredential, signInWithEmailLink, signOut, User } from 'firebase/auth';
+import * as Linking from 'expo-linking';
 import { Platform } from 'react-native';
 
 import { firebaseAuth } from '@/src/lib/firebase';
+
+const pendingEmailStorageKey = 'habitai.auth.pendingEmail';
 
 if (Platform.OS === 'android') {
   GoogleSignin.configure({
@@ -11,14 +15,16 @@ if (Platform.OS === 'android') {
   });
 }
 
+export type AuthProvider = 'email' | 'google';
+
 export type AuthResult = {
   uid: string;
   email?: string;
   displayName?: string;
-  provider: 'email' | 'google';
+  provider: AuthProvider;
 };
 
-export function toAuthResult(user: User, provider: AuthResult['provider']): AuthResult {
+export function toAuthResult(user: User, provider: AuthProvider): AuthResult {
   return {
     uid: user.uid,
     email: user.email ?? undefined,
@@ -27,14 +33,48 @@ export function toAuthResult(user: User, provider: AuthResult['provider']): Auth
   };
 }
 
-export async function signInWithEmail(email: string, password: string) {
-  const credential = await signInWithEmailAndPassword(firebaseAuth, email.trim(), password);
+function getEmailLinkSettings() {
+  return {
+    url: process.env.EXPO_PUBLIC_FIREBASE_EMAIL_LINK_URL ?? 'https://habit-tracker-9f884.firebaseapp.com/auth/email-link',
+    handleCodeInApp: true,
+    iOS: {
+      bundleId: 'com.hackathon.habitai',
+    },
+    android: {
+      packageName: 'com.hackathon.habitai',
+      installApp: true,
+    },
+  };
+}
+
+export async function sendPasswordlessSignInEmail(email: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  await sendSignInLinkToEmail(firebaseAuth, normalizedEmail, getEmailLinkSettings());
+  await AsyncStorage.setItem(pendingEmailStorageKey, normalizedEmail);
+  return normalizedEmail;
+}
+
+export async function completePasswordlessSignIn(email: string, emailLink: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const credential = await signInWithEmailLink(firebaseAuth, normalizedEmail, emailLink.trim());
+  await AsyncStorage.removeItem(pendingEmailStorageKey);
   return toAuthResult(credential.user, 'email');
 }
 
-export async function createAccountWithEmail(email: string, password: string) {
-  const credential = await createUserWithEmailAndPassword(firebaseAuth, email.trim(), password);
-  return toAuthResult(credential.user, 'email');
+export async function getPendingPasswordlessEmail() {
+  return AsyncStorage.getItem(pendingEmailStorageKey);
+}
+
+export async function clearPendingPasswordlessEmail() {
+  await AsyncStorage.removeItem(pendingEmailStorageKey);
+}
+
+export function isPasswordlessEmailLink(value: string) {
+  return isSignInWithEmailLink(firebaseAuth, value);
+}
+
+export function getCurrentAuthUrl() {
+  return Linking.getLinkingURL() ?? null;
 }
 
 export async function signInWithNativeGoogle() {

@@ -6,6 +6,7 @@
     "@expo/vector-icons": "^15.0.2",
     "@react-native-async-storage/async-storage": "^3.1.0",
     "@react-native-google-signin/google-signin": "^16.1.2",
+    "@sentry/react-native": "^8.12.0",
     "date-fns": "^4.3.0",
     "expo": "~56.0.4",
     "expo-constants": "~56.0.15",
@@ -39,8 +40,8 @@
   },
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit"
   },

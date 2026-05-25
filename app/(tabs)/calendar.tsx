@@ -6,14 +6,12 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 
 import { ScreenShell } from '@/src/components/screen-shell';
-import { getLogStatusForHabitOnDate } from '@/src/domain/habits';
+import { getLogStatusForHabitOnDate, isHabitScheduledForDate } from '@/src/domain/habits';
 import { useAppStore } from '@/src/store/app-store';
 import { useThemeTokens } from '@/src/theme/colors';
 import { HabitLogStatus } from '@/src/types/habits';
 
 const weekdayLabels = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
-
-const statusPriority: HabitLogStatus[] = ['completed', 'partial', 'missed', 'skipped', 'pending'];
 
 export default function CalendarScreen() {
   const tokens = useThemeTokens();
@@ -35,22 +33,6 @@ export default function CalendarScreen() {
     <ScreenShell
       title="Calendar"
       subtitle="Track your habits by day and stay consistent."
-      action={
-        <Pressable
-          accessibilityLabel="Open archive"
-          style={[
-            styles.archiveButton,
-            {
-              backgroundColor: tokens.surface,
-              borderColor: tokens.border,
-            },
-          ]}
-          onPress={() => router.push('/archive')}
-        >
-          <Ionicons name="briefcase-outline" size={20} color={tokens.text} />
-          <Text style={[styles.archiveLabel, { color: tokens.text }]}>Archive</Text>
-        </Pressable>
-      }
     >
       <View style={styles.monthHeader}>
         <MonthNavButton
@@ -84,10 +66,8 @@ export default function CalendarScreen() {
           const selected = selectedDate === dateKey;
           const isToday = todayKey === dateKey;
           const inMonth = isSameMonth(day, currentMonth);
-          const dayStatuses = habits.map((habit) => getLogStatusForHabitOnDate(habit, logs, dateKey));
-          const status = statusPriority.find((entry) => dayStatuses.includes(entry)) ?? 'pending';
-          const dayColors = getDayCellColors({ selected, isToday, inMonth, tokens });
-          const dotColor = getStatusDotColor(status, tokens, { selected, isToday });
+          const status = getCalendarDayStatus(habits, logs, dateKey, todayKey);
+          const dayColors = getDayCellColors({ selected, isToday, inMonth, status, tokens });
 
           return (
             <Pressable
@@ -108,7 +88,6 @@ export default function CalendarScreen() {
               <View style={[styles.dayInnerGlow, { backgroundColor: dayColors.glowColor }]} />
               <View style={[styles.dayInnerStroke, { borderColor: dayColors.innerBorderColor }]} />
               <Text style={[styles.dayLabel, { color: dayColors.textColor }]}>{format(day, 'd')}</Text>
-              <View style={[styles.dot, { backgroundColor: dotColor }]} />
             </Pressable>
           );
         })}
@@ -221,85 +200,128 @@ function getDayCellColors({
   selected,
   isToday,
   inMonth,
+  status,
   tokens,
 }: {
   selected: boolean;
   isToday: boolean;
   inMonth: boolean;
+  status: HabitLogStatus;
   tokens: ReturnType<typeof useThemeTokens>;
 }) {
+  const base = getStatusDayCellColors(status, tokens, inMonth);
+
   if (selected) {
     return {
-      backgroundColor: '#173f75',
-      borderColor: '#2d5f9c',
-      innerBorderColor: 'rgba(255,255,255,0.06)',
-      glowColor: 'rgba(255,255,255,0.045)',
+      backgroundColor: base.selectedBackgroundColor,
+      borderColor: base.selectedBorderColor,
+      innerBorderColor: 'rgba(255,255,255,0.08)',
+      glowColor: 'rgba(255,255,255,0.05)',
       textColor: '#ffffff',
     };
   }
 
   if (isToday) {
     return {
-      backgroundColor: '#fbfbfd',
-      borderColor: '#ffffff',
-      innerBorderColor: 'rgba(15,23,42,0.06)',
-      glowColor: 'rgba(255,255,255,0.4)',
-      textColor: '#0f1d30',
-    };
-  }
-
-  if (tokens.mode === 'light') {
-    return {
-      backgroundColor: inMonth ? '#f7faff' : '#edf2f9',
-      borderColor: inMonth ? '#d7e2f0' : '#dfe7f2',
-      innerBorderColor: 'rgba(255,255,255,0.38)',
-      glowColor: 'rgba(255,255,255,0.18)',
-      textColor: inMonth ? '#10243e' : '#7f8ea3',
+      backgroundColor: base.todayBackgroundColor,
+      borderColor: base.todayBorderColor,
+      innerBorderColor: tokens.mode === 'light' ? 'rgba(255,255,255,0.42)' : 'rgba(255,255,255,0.08)',
+      glowColor: tokens.mode === 'light' ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.04)',
+      textColor: base.todayTextColor,
     };
   }
 
   return {
-    backgroundColor: inMonth ? 'rgba(19, 31, 49, 0.96)' : 'rgba(14, 24, 39, 0.9)',
-    borderColor: inMonth ? 'rgba(39, 61, 92, 0.92)' : 'rgba(33, 50, 76, 0.72)',
-    innerBorderColor: inMonth ? 'rgba(255,255,255,0.035)' : 'rgba(255,255,255,0.025)',
-    glowColor: inMonth ? 'rgba(255,255,255,0.016)' : 'rgba(255,255,255,0.01)',
-    textColor: inMonth ? '#f2f7ff' : 'rgba(242,247,255,0.42)',
+    backgroundColor: base.backgroundColor,
+    borderColor: base.borderColor,
+    innerBorderColor: base.innerBorderColor,
+    glowColor: base.glowColor,
+    textColor: base.textColor,
   };
 }
 
-function getStatusDotColor(
-  status: HabitLogStatus,
-  tokens: ReturnType<typeof useThemeTokens>,
-  flags: { selected: boolean; isToday: boolean },
-) {
-  if (flags.selected) {
-    if (status === 'partial') {
-      return '#f8a41b';
-    }
-    if (status === 'completed') {
-      return '#ffffff';
-    }
-    if (status === 'missed') {
-      return '#ff8a65';
-    }
-    return 'rgba(255,255,255,0.3)';
-  }
-
-  if (flags.isToday) {
-    return 'rgba(15, 23, 42, 0.22)';
-  }
-
+function getStatusDayCellColors(status: HabitLogStatus, tokens: ReturnType<typeof useThemeTokens>, inMonth: boolean) {
   switch (status) {
     case 'completed':
-      return tokens.success;
+      return {
+        backgroundColor: tokens.mode === 'light' ? '#dcfce7' : '#163321',
+        borderColor: tokens.mode === 'light' ? '#86efac' : '#1f5b35',
+        innerBorderColor: tokens.mode === 'light' ? 'rgba(255,255,255,0.42)' : 'rgba(255,255,255,0.04)',
+        glowColor: tokens.mode === 'light' ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.015)',
+        textColor: tokens.mode === 'light' ? '#166534' : '#dcfce7',
+        todayBackgroundColor: tokens.mode === 'light' ? '#bbf7d0' : '#1b4332',
+        todayBorderColor: tokens.mode === 'light' ? '#4ade80' : '#2e7d52',
+        todayTextColor: tokens.mode === 'light' ? '#14532d' : '#f0fdf4',
+        selectedBackgroundColor: tokens.mode === 'light' ? '#15803d' : '#14532d',
+        selectedBorderColor: tokens.mode === 'light' ? '#166534' : '#22c55e',
+      };
     case 'partial':
-      return tokens.warning;
+      return {
+        backgroundColor: tokens.mode === 'light' ? '#fef3c7' : '#3a2a14',
+        borderColor: tokens.mode === 'light' ? '#fcd34d' : '#8b5a1e',
+        innerBorderColor: tokens.mode === 'light' ? 'rgba(255,255,255,0.38)' : 'rgba(255,255,255,0.04)',
+        glowColor: tokens.mode === 'light' ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.015)',
+        textColor: tokens.mode === 'light' ? '#92400e' : '#fde68a',
+        todayBackgroundColor: tokens.mode === 'light' ? '#fde68a' : '#4a3317',
+        todayBorderColor: tokens.mode === 'light' ? '#f59e0b' : '#c0841a',
+        todayTextColor: tokens.mode === 'light' ? '#78350f' : '#fffbeb',
+        selectedBackgroundColor: tokens.mode === 'light' ? '#d97706' : '#92400e',
+        selectedBorderColor: tokens.mode === 'light' ? '#92400e' : '#f59e0b',
+      };
     case 'missed':
-      return tokens.danger;
+      return {
+        backgroundColor: tokens.mode === 'light' ? '#fee2e2' : '#351520',
+        borderColor: tokens.mode === 'light' ? '#fca5a5' : '#7f1d1d',
+        innerBorderColor: tokens.mode === 'light' ? 'rgba(255,255,255,0.34)' : 'rgba(255,255,255,0.04)',
+        glowColor: tokens.mode === 'light' ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.015)',
+        textColor: tokens.mode === 'light' ? '#b91c1c' : '#fecdd3',
+        todayBackgroundColor: tokens.mode === 'light' ? '#fecaca' : '#3f1721',
+        todayBorderColor: tokens.mode === 'light' ? '#ef4444' : '#be123c',
+        todayTextColor: tokens.mode === 'light' ? '#7f1d1d' : '#fff1f2',
+        selectedBackgroundColor: tokens.mode === 'light' ? '#dc2626' : '#881337',
+        selectedBorderColor: tokens.mode === 'light' ? '#991b1b' : '#fb7185',
+      };
     case 'skipped':
-      return tokens.textMuted;
+      return {
+        backgroundColor: tokens.mode === 'light' ? '#e2e8f0' : '#202938',
+        borderColor: tokens.mode === 'light' ? '#cbd5e1' : '#334155',
+        innerBorderColor: tokens.mode === 'light' ? 'rgba(255,255,255,0.34)' : 'rgba(255,255,255,0.035)',
+        glowColor: tokens.mode === 'light' ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.01)',
+        textColor: tokens.mode === 'light' ? '#475569' : '#cbd5e1',
+        todayBackgroundColor: tokens.mode === 'light' ? '#cbd5e1' : '#293445',
+        todayBorderColor: tokens.mode === 'light' ? '#94a3b8' : '#475569',
+        todayTextColor: tokens.mode === 'light' ? '#334155' : '#f8fafc',
+        selectedBackgroundColor: tokens.mode === 'light' ? '#64748b' : '#334155',
+        selectedBorderColor: tokens.mode === 'light' ? '#475569' : '#94a3b8',
+      };
     default:
-      return tokens.mode === 'light' ? '#cbd5e1' : '#475569';
+      if (tokens.mode === 'light') {
+        return {
+          backgroundColor: inMonth ? '#f7faff' : '#edf2f9',
+          borderColor: inMonth ? '#d7e2f0' : '#dfe7f2',
+          innerBorderColor: 'rgba(255,255,255,0.38)',
+          glowColor: 'rgba(255,255,255,0.18)',
+          textColor: inMonth ? '#10243e' : '#7f8ea3',
+          todayBackgroundColor: '#fbfbfd',
+          todayBorderColor: '#ffffff',
+          todayTextColor: '#0f1d30',
+          selectedBackgroundColor: '#173f75',
+          selectedBorderColor: '#2d5f9c',
+        };
+      }
+
+      return {
+        backgroundColor: inMonth ? 'rgba(19, 31, 49, 0.96)' : 'rgba(14, 24, 39, 0.9)',
+        borderColor: inMonth ? 'rgba(39, 61, 92, 0.92)' : 'rgba(33, 50, 76, 0.72)',
+        innerBorderColor: inMonth ? 'rgba(255,255,255,0.035)' : 'rgba(255,255,255,0.025)',
+        glowColor: inMonth ? 'rgba(255,255,255,0.016)' : 'rgba(255,255,255,0.01)',
+        textColor: inMonth ? '#f2f7ff' : 'rgba(242,247,255,0.42)',
+        todayBackgroundColor: 'rgba(28, 40, 58, 0.98)',
+        todayBorderColor: 'rgba(255,255,255,0.18)',
+        todayTextColor: '#f8fbff',
+        selectedBackgroundColor: '#173f75',
+        selectedBorderColor: '#4f83c2',
+      };
   }
 }
 
@@ -383,20 +405,38 @@ function buildCalendarGrid(currentMonth: Date) {
   return eachDayOfInterval({ start, end });
 }
 
+function getCalendarDayStatus(
+  habits: ReturnType<typeof useAppStore.getState>['habits'],
+  logs: ReturnType<typeof useAppStore.getState>['logs'],
+  dateKey: string,
+  todayKey: string,
+): HabitLogStatus {
+  const scheduledHabits = habits.filter((habit) => isHabitScheduledForDate(habit, dateKey, logs));
+
+  if (!scheduledHabits.length) {
+    return 'pending';
+  }
+
+  const completedCount = scheduledHabits.filter(
+    (habit) => getLogStatusForHabitOnDate(habit, logs, dateKey) === 'completed',
+  ).length;
+
+  if (completedCount === scheduledHabits.length) {
+    return 'completed';
+  }
+
+  if (completedCount > 0) {
+    return 'partial';
+  }
+
+  if (dateKey > todayKey) {
+    return 'pending';
+  }
+
+  return 'missed';
+}
+
 const styles = StyleSheet.create({
-  archiveButton: {
-    minHeight: 56,
-    paddingHorizontal: 18,
-    borderRadius: 20,
-    borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  archiveLabel: {
-    fontSize: 16,
-    fontWeight: '700',
-  },
   monthHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -445,7 +485,7 @@ const styles = StyleSheet.create({
   dayCell: {
     width: '12.95%',
     aspectRatio: 1,
-    borderRadius: 22,
+    borderRadius: 999,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -475,7 +515,7 @@ const styles = StyleSheet.create({
     left: 1,
     right: 1,
     bottom: 1,
-    borderRadius: 21,
+    borderRadius: 999,
     borderWidth: 1,
   },
   dayLabel: {
@@ -483,15 +523,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: -0.3,
     lineHeight: 18,
-    transform: [{ translateY: -6 }],
-  },
-  dot: {
-    position: 'absolute',
-    bottom: 9,
-    alignSelf: 'center',
-    width: 7,
-    height: 7,
-    borderRadius: 999,
   },
   detailsCard: {
     borderRadius: 28,

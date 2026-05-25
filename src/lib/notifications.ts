@@ -80,6 +80,35 @@ export async function syncHabitReminderNotifications(habit: Habit) {
   return ids;
 }
 
+export async function scheduleHabitTestNotifications(habits: Habit[]) {
+  await ensureNotificationChannel();
+
+  const burstHabits = habits
+    .filter((habit) => !habit.archivedAt)
+    .slice(0, 5);
+
+  const ids: string[] = [];
+
+  for (const [index, habit] of burstHabits.entries()) {
+    const seconds = 2 + index * 2;
+    const id = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: `Time for ${habit.name}`,
+        body: habit.motivationalNote || 'Keep your streak alive today.',
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+        seconds,
+        repeats: false,
+        channelId: 'habit-reminders',
+      },
+    });
+    ids.push(id);
+  }
+
+  return ids;
+}
+
 export async function clearNotificationIds(notificationIds: string[]) {
   await Promise.all(notificationIds.map((id) => Notifications.cancelScheduledNotificationAsync(id)));
 }

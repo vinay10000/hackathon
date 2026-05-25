@@ -1,220 +1,153 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { PrimaryButton } from '@/src/components/primary-button';
-import { ScreenShell } from '@/src/components/screen-shell';
-import { PROFILE_AVATARS } from '@/src/constants/profile';
 import { useAppStore } from '@/src/store/app-store';
 import { useThemeTokens } from '@/src/theme/colors';
 
-const foundations = [
-  { value: 'Local', label: 'Works without an account' },
-  { value: 'Fast', label: 'Daily check-ins stay under 5 seconds' },
-  { value: 'Safe', label: 'AI asks before changing data' },
-];
-
-const highlights = ['Offline-first habit logs', 'Light, Dark, and AMOLED themes', 'Voice-ready habit creation'];
+const heroImage = require('../assets/images/onboarding-1.png');
 
 export default function OnboardingScreen() {
   const tokens = useThemeTokens();
   const completeOnboarding = useAppStore((state) => state.completeOnboarding);
-  const setProfile = useAppStore((state) => state.setProfile);
-  const savedAvatarId = useAppStore((state) => state.preferences.profileAvatarId);
-  const savedName = useAppStore((state) => state.session.displayName ?? '');
-  const [name, setName] = useState(savedName === 'Friend' ? '' : savedName);
-  const [avatarId, setAvatarId] = useState(savedAvatarId);
+  const continueAsGuest = useAppStore((state) => state.continueAsGuest);
 
-  function finishOnboarding(nextRoute: '/(tabs)/today' | '/auth') {
-    setProfile({ displayName: name || 'Friend', profileAvatarId: avatarId });
+  function handleStart() {
     completeOnboarding();
-    router.replace(nextRoute);
+    router.replace('/auth');
+  }
+
+  function handleGuestMode() {
+    completeOnboarding();
+    continueAsGuest();
+    router.replace('/today');
   }
 
   return (
-    <ScreenShell title="HabitAI" subtitle="Build a habit loop that stays calm, quick, and private from the first tap." scroll={false}>
-      <View style={[styles.hero, { backgroundColor: tokens.surface, borderColor: tokens.border }]}>
-        <View style={styles.heroTop}>
-          <Text style={[styles.eyebrow, { backgroundColor: tokens.primarySoft, color: tokens.primary }]}>Local-first</Text>
-          <Text style={[styles.eyebrow, { backgroundColor: tokens.surfaceMuted, color: tokens.textMuted }]}>AMOLED ready</Text>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: '#f5f8ff' }]}>
+      <ScrollView bounces={false} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.heroWrap}>
+          <View style={styles.heroGlowTop} />
+          <View style={styles.heroGlowBottom} />
+          <Image resizeMode="contain" source={heroImage} style={styles.heroImage} />
         </View>
-        <Text style={[styles.heroTitle, { color: tokens.text }]}>Track today. Keep the whole history.</Text>
-        <Text style={[styles.heroBody, { color: tokens.textMuted }]}>Start as a guest, add habits in under a minute, and sign in only when you want account sync.</Text>
-        <View style={styles.profileBlock}>
-          <Text style={[styles.sectionLabel, { color: tokens.text }]}>What should we call you?</Text>
-          <TextInput
-            value={name}
-            onChangeText={setName}
-            placeholder="Enter your name"
-            placeholderTextColor={tokens.textMuted}
-            style={[styles.input, { backgroundColor: tokens.surfaceMuted, borderColor: tokens.border, color: tokens.text }]}
-          />
-          <Text style={[styles.sectionLabel, { color: tokens.text }]}>Pick a profile look</Text>
-          <View style={styles.avatarRow}>
-            {PROFILE_AVATARS.map((avatar) => {
-              const selected = avatar.id === avatarId;
-              return (
-                <Pressable
-                  key={avatar.id}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                  onPress={() => setAvatarId(avatar.id)}
-                  style={[
-                    styles.avatarChip,
-                    {
-                      backgroundColor: avatar.color,
-                      borderColor: selected ? '#ffffff' : 'rgba(255,255,255,0.08)',
-                    },
-                  ]}
-                >
-                  <Ionicons name={avatar.icon} size={18} color="#ffffff" />
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-        <View style={styles.metrics}>
-          {foundations.map((item) => (
-            <View key={item.value} style={[styles.metric, { backgroundColor: tokens.surfaceMuted, borderColor: tokens.border }]}>
-              <Text style={[styles.metricValue, { color: tokens.text }]}>{item.value}</Text>
-              <Text style={[styles.metricLabel, { color: tokens.textMuted }]}>{item.label}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
 
-      <View style={[styles.panel, { backgroundColor: tokens.mode === 'light' ? '#10243e' : tokens.surface, borderColor: tokens.border }]}>
-        <Text style={[styles.panelTitle, { color: tokens.mode === 'light' ? '#ffffff' : tokens.text }]}>Designed around the requirements that matter</Text>
-        {highlights.map((item) => (
-          <View key={item} style={styles.highlightRow}>
-            <View style={[styles.checkDot, { backgroundColor: tokens.success }]} />
-            <Text style={[styles.highlightText, { color: tokens.mode === 'light' ? '#dbeafe' : tokens.textMuted }]}>{item}</Text>
-          </View>
-        ))}
-      </View>
+        <View style={styles.copyBlock}>
+          <Text style={[styles.title, { color: '#13235f' }]}>Build Better Habits,{'\n'}One Day at a Time</Text>
+          <Text style={[styles.body, { color: '#5d6b8d' }]}>
+            Track, analyze, and improve your daily routines with AI-powered insights.
+          </Text>
+        </View>
 
-      <View style={styles.actions}>
-        <PrimaryButton label="Sign in or create account" onPress={() => finishOnboarding('/auth')} />
-        <PrimaryButton label="Continue as guest" tone="secondary" onPress={() => finishOnboarding('/(tabs)/today')} />
-        <Pressable onPress={() => finishOnboarding('/(tabs)/today')} style={styles.textButton}>
-          <Text style={[styles.textButtonLabel, { color: tokens.textMuted }]}>No account required for local tracking</Text>
+        <Pressable onPress={handleStart} style={styles.primaryButton}>
+          <Text style={styles.primaryLabel}>Get Started</Text>
+          <View style={styles.arrowBadge}>
+            <Ionicons color="#ffffff" name="arrow-forward" size={20} />
+          </View>
         </Pressable>
-      </View>
-    </ScreenShell>
+
+        <Pressable onPress={handleGuestMode} style={styles.secondaryButton}>
+          <Text style={[styles.secondaryLabel, { color: tokens.textMuted }]}>Continue as guest for now</Text>
+        </Pressable>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  hero: {
-    borderWidth: 1,
-    borderRadius: 24,
-    padding: 22,
-    gap: 14,
+  safeArea: {
+    flex: 1,
   },
-  heroTop: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+  content: {
+    flexGrow: 1,
+    paddingHorizontal: 24,
+    paddingTop: 6,
+    paddingBottom: 28,
+    justifyContent: 'space-between',
   },
-  heroTitle: {
-    fontSize: 30,
-    lineHeight: 36,
-    fontWeight: '800',
-  },
-  heroBody: {
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  profileBlock: {
-    gap: 10,
-  },
-  sectionLabel: {
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  input: {
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  avatarRow: {
-    flexDirection: 'row',
-    gap: 10,
-    flexWrap: 'wrap',
-  },
-  avatarChip: {
-    width: 44,
-    height: 44,
-    borderRadius: 16,
-    borderWidth: 2,
+  heroWrap: {
+    marginTop: 4,
+    minHeight: 470,
+    borderRadius: 36,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#eef4ff',
   },
-  eyebrow: {
+  heroGlowTop: {
+    position: 'absolute',
+    top: -48,
+    left: -32,
+    width: 220,
+    height: 220,
     borderRadius: 999,
-    fontSize: 12,
-    fontWeight: '800',
-    overflow: 'hidden',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    backgroundColor: 'rgba(164, 216, 255, 0.5)',
   },
-  metrics: {
-    flexDirection: 'row',
-    gap: 8,
+  heroGlowBottom: {
+    position: 'absolute',
+    right: -56,
+    bottom: -40,
+    width: 220,
+    height: 220,
+    borderRadius: 999,
+    backgroundColor: 'rgba(173, 146, 255, 0.22)',
   },
-  metric: {
-    flex: 1,
-    minHeight: 86,
-    borderWidth: 1,
-    borderRadius: 18,
-    justifyContent: 'space-between',
-    padding: 12,
+  heroImage: {
+    width: '100%',
+    height: 540,
   },
-  metricValue: {
-    fontSize: 17,
-    fontWeight: '800',
+  copyBlock: {
+    marginTop: 18,
+    alignItems: 'center',
+    gap: 14,
   },
-  metricLabel: {
-    fontSize: 12,
-    lineHeight: 16,
+  title: {
+    textAlign: 'center',
+    fontSize: 30,
+    lineHeight: 38,
+    fontWeight: '900',
+    letterSpacing: -0.8,
   },
-  panel: {
-    borderWidth: 1,
-    borderRadius: 24,
-    padding: 18,
-    gap: 12,
-  },
-  panelTitle: {
+  body: {
+    maxWidth: 320,
+    textAlign: 'center',
     fontSize: 16,
-    fontWeight: '800',
-    lineHeight: 22,
+    lineHeight: 26,
+    fontWeight: '500',
   },
-  highlightRow: {
+  primaryButton: {
+    marginTop: 28,
+    minHeight: 72,
+    borderRadius: 28,
+    backgroundColor: '#5b6cff',
+    paddingLeft: 28,
+    paddingRight: 18,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    justifyContent: 'center',
+    gap: 14,
   },
-  checkDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 999,
+  primaryLabel: {
+    color: '#ffffff',
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: -0.4,
   },
-  highlightText: {
-    flex: 1,
-    fontSize: 15,
-    lineHeight: 21,
-  },
-  actions: {
-    gap: 12,
-  },
-  textButton: {
+  arrowBadge: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: 'center',
-    paddingVertical: 4,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.18)',
   },
-  textButtonLabel: {
-    fontSize: 13,
+  secondaryButton: {
+    marginTop: 14,
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  secondaryLabel: {
+    fontSize: 14,
     fontWeight: '700',
   },
 });
