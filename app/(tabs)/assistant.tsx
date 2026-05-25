@@ -1,17 +1,19 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { format } from 'date-fns';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 
 import { PrimaryButton } from '@/src/components/primary-button';
 import { ScreenShell } from '@/src/components/screen-shell';
 import { interpretHabitCommand } from '@/src/lib/ai-assistant';
+import { generateGeminiText, getGeminiModelName } from '@/src/lib/gemini';
 import { useAppStore } from '@/src/store/app-store';
 import { useThemeTokens } from '@/src/theme/colors';
 
 export default function AssistantScreen() {
   const tokens = useThemeTokens();
   const habits = useAppStore((state) => state.habits);
+  const logs = useAppStore((state) => state.logs);
   const aiEnabled = useAppStore((state) => state.preferences.aiEnabled);
   const microphonePermission = useAppStore((state) => state.preferences.microphonePermission);
   const history = useAppStore((state) => state.aiHistory);
@@ -26,12 +28,14 @@ export default function AssistantScreen() {
   const deleteHabit = useAppStore((state) => state.deleteHabit);
   const updateHabitNote = useAppStore((state) => state.updateHabitNote);
   const updateHabitValue = useAppStore((state) => state.updateHabitValue);
+  const saveHabit = useAppStore((state) => state.saveHabit);
   const [command, setCommand] = useState('');
   const [activePreviewId, setActivePreviewId] = useState<string | null>(null);
   const [recognizing, setRecognizing] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
+  const [assistantOutput, setAssistantOutput] = useState<string | null>(null);
 
-  const preview = interpretHabitCommand(command, habits);
+  const preview = interpretHabitCommand(command, habits, logs);
 
   useSpeechRecognitionEvent('start', () => {
     setRecognizing(true);
@@ -76,6 +80,10 @@ export default function AssistantScreen() {
           <PrimaryButton
             label="Preview"
             onPress={() => {
+              if (!aiEnabled) {
+                Alert.alert('AI assistant disabled', 'Turn the assistant back on in Settings before previewing commands.');
+                return;
+              }
               const item = addAiHistoryItem({
                 input: command,
                 interpretedText: preview.interpretedText,
@@ -93,6 +101,7 @@ export default function AssistantScreen() {
       <View style={[styles.card, { backgroundColor: preview.status === 'previewed' ? tokens.primarySoft : tokens.surfaceMuted, borderColor: tokens.border }]}>
         <Text style={[styles.title, { color: tokens.text }]}>Confirmation preview</Text>
         <Text style={[styles.body, { color: tokens.textMuted }]}>Intent: {preview.intent}</Text>
+        <Text style={[styles.body, { color: tokens.textMuted }]}>Model: {getGeminiModelName()}</Text>
         <Text style={[styles.preview, { color: tokens.text }]}>{preview.preview}</Text>
         <View style={styles.row}>
           <PrimaryButton
@@ -119,6 +128,13 @@ export default function AssistantScreen() {
         <Text style={[styles.body, { color: tokens.textMuted }]}>This milestone records confirmation decisions only. Destructive or ambiguous commands never execute silently.</Text>
       </View>
 
+      {assistantOutput ? (
+        <View style={[styles.card, { backgroundColor: tokens.surface, borderColor: tokens.border }]}>
+          <Text style={[styles.title, { color: tokens.text }]}>Assistant result</Text>
+          <Text style={[styles.body, { color: tokens.textMuted }]}>{assistantOutput}</Text>
+        </View>
+      ) : null}
+
       <View style={[styles.card, { backgroundColor: tokens.surface, borderColor: tokens.border }]}>
         <View style={styles.spaceBetween}>
           <Text style={[styles.title, { color: tokens.text }]}>Command history</Text>
@@ -144,7 +160,33 @@ export default function AssistantScreen() {
     const habitId = preview.matchedHabitId;
     const todayKey = format(new Date(), 'yyyy-MM-dd');
 
-    if (preview.intent === 'summary' || preview.intent === 'recommendation' || preview.intent === 'create' || preview.intent === 'modify') {
+    if (preview.intent === 'summary' || preview.intent === 'recommendation') {
+      const activeHabits = habits.filter((habit) => !habit.archivedAt);
+      const prompt = [
+        `User command: ${command}`,
+        `Interpreted preview: ${preview.preview}`,
+        `Active habits: ${JSON.stringify(activeHabits)}`,
+        `Habit logs: ${JSON.stringify(logs.slice(0, 150))}`,
+        'Write a short, supportive response for the habit app. Be specific, non-judgmental, and avoid medical, legal, or financial advice.',
+      ].join('\n\n');
+      const systemInstruction =
+        preview.intent === 'summary'
+          ? 'You are an in-app habit assistant. Summarize current habit progress in simple, encouraging language using only the provided local data.'
+          : 'You are an in-app habit coach. Recommend small, realistic habits, targets, and reminders using only the provided local data and the user request.';
+      const result = await generateGeminiText(prompt, { systemInstruction });
+      setAssistantOutput(result);
+      return true;
+    }
+
+    if (preview.intent === 'create' && preview.draftPayload) {
+      await saveHabit(preview.draftPayload.draft);
+      setAssistantOutput(`Created ${preview.draftPayload.draft.name}. You can open it from Today and edit any field manually if needed.`);
+      return true;
+    }
+
+    if (preview.intent === 'modify' && preview.draftPayload && habitId) {
+      await saveHabit(preview.draftPayload.draft, habitId);
+      setAssistantOutput(`Updated ${preview.draftPayload.draft.name}. The confirmed changes are now saved locally.`);
       return true;
     }
 
@@ -154,31 +196,38 @@ export default function AssistantScreen() {
 
     if (preview.intent === 'complete') {
       toggleHabitComplete(habitId, todayKey);
+      setAssistantOutput('Marked complete for today.');
       return true;
     }
     if (preview.intent === 'skip') {
       skipHabit(habitId, todayKey);
+      setAssistantOutput('Marked as skipped for today.');
       return true;
     }
     if (preview.intent === 'archive') {
       archiveHabit(habitId);
+      setAssistantOutput('Habit archived. Historical data stays intact.');
       return true;
     }
     if (preview.intent === 'restore') {
       restoreHabit(habitId);
+      setAssistantOutput('Habit restored and active again.');
       return true;
     }
     if (preview.intent === 'delete') {
       await deleteHabit(habitId);
+      setAssistantOutput('Habit deleted from local data.');
       return true;
     }
     if (preview.intent === 'note') {
       updateHabitNote(habitId, todayKey, command);
+      setAssistantOutput('Note saved to today\'s log.');
       return true;
     }
     if (preview.intent === 'log') {
       const numericValue = Number(command.match(/\d+/)?.[0] ?? 1);
       updateHabitValue(habitId, todayKey, numericValue, command);
+      setAssistantOutput(`Logged ${numericValue} for today.`);
       return true;
     }
 

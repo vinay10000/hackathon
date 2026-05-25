@@ -1,12 +1,13 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { useThemeTokens } from '@/src/theme/colors';
 
 export default function RootLayout() {
   const tokens = useThemeTokens();
   return (
-    <>
+    <SafeAreaProvider>
       <StatusBar style={tokens.statusBar} />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
@@ -18,6 +19,6 @@ export default function RootLayout() {
         <Stack.Screen name="habit/edit/[id]" />
         <Stack.Screen name="archive" />
       </Stack>
-    </>
+    </SafeAreaProvider>
   );
 }

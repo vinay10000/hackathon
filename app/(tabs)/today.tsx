@@ -1,17 +1,18 @@
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { format } from 'date-fns';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { EmptyState } from '@/src/components/empty-state';
 import { HabitCard } from '@/src/components/habit-card';
-import { PrimaryButton } from '@/src/components/primary-button';
 import { ScreenShell } from '@/src/components/screen-shell';
 import { StatCard } from '@/src/components/stat-card';
 import { getTodayProgress } from '@/src/domain/habits';
 import { useAppStore, useTodayHabits } from '@/src/store/app-store';
-import { palette } from '@/src/theme/colors';
+import { palette, useThemeTokens } from '@/src/theme/colors';
 
 export default function TodayScreen() {
+  const tokens = useThemeTokens();
   const todayHabits = useTodayHabits();
   const logs = useAppStore((state) => state.logs);
   const habits = useAppStore((state) => state.habits);
@@ -19,7 +20,19 @@ export default function TodayScreen() {
   const dateKey = format(new Date(), 'yyyy-MM-dd');
 
   return (
-    <ScreenShell title="Today" subtitle="One-tap progress, measurable updates, quick notes, and a clean read on what still matters today." action={<PrimaryButton label="+ New habit" onPress={() => router.push('/habit/new')} />}>
+    <ScreenShell
+      title="Today"
+      subtitle="One-tap progress, measurable updates, quick notes, and a clean read on what still matters today."
+      action={
+        <Pressable
+          accessibilityLabel="Open settings"
+          style={[styles.headerIconButton, { backgroundColor: tokens.surfaceMuted, borderColor: tokens.border }]}
+          onPress={() => router.push('/(tabs)/settings')}
+        >
+          <Ionicons name="settings-outline" size={22} color={tokens.text} />
+        </Pressable>
+      }
+    >
       <View style={styles.stats}>
         <StatCard label="Completed" value={String(progress.completedCount)} accent={palette.success} />
         <StatCard label="Scheduled" value={String(progress.scheduledCount)} accent={palette.primary} />
@@ -51,6 +64,14 @@ const styles = StyleSheet.create({
     padding: 20,
     borderRadius: 24,
     gap: 8,
+  },
+  headerIconButton: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
   },
   footerTitle: {
     fontSize: 16,
