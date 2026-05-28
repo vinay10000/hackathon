@@ -52,6 +52,11 @@ function FloatingTabBar({ state, descriptors, navigation }: any) {
     Math.floor((railInnerWidth - 52) / Math.max(visibleTabCount - 1, 1)),
   );
   const activeTabWidth = Math.min(64, railInnerWidth - inactiveTabWidth * Math.max(visibleTabCount - 1, 0));
+  const activeRoute = state.routes[state.index];
+
+  if (activeRoute?.name === 'assistant') {
+    return null;
+  }
 
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>

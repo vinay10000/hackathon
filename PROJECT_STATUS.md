@@ -107,3 +107,13 @@
 - 2026-05-25: Made the Analytics weekly trend range picker behave like a draggable bottom sheet, so it can be pulled up slightly and swiped down to dismiss from the handle area
 - 2026-05-25: Rebuilt auth to match the new branded mockup direction, replaced the Apple slot with guest continuation, and switched email auth to Firebase passwordless email-link sign-in with manual link fallback
 - 2026-05-25: Replaced the old onboarding form with a branded image-led welcome screen using `assets/images/onboarding-1.png`, and fixed first-run routing so onboarding shows before auth
+- 2026-05-26: Simplified the auth UI into a minimal Google-or-guest entry screen and removed the email-link sign-in path from the visible auth flow
+- 2026-05-28: Reworked the Assistant tab into a chat-bubble UI with quick prompts, safe preview bubbles, local history, and a bottom composer raised above the floating tab bar
+- 2026-05-28: Added a fullscreen dark Assistant voice screen launched from the Assistant tab, hiding the bottom nav and showing an animated center bubble, live word-highlight transcript, close control, and bottom mic
+- 2026-05-28: Added fullscreen Assistant voice/chat mode toggle, agent response text under recognized speech, and success/failure popups for AI habit command execution
+- 2026-05-28: Reworked fullscreen Assistant chat mode to match the dark reference layout with X close, pencil new-chat reset, no model pill, no plus input button, and no overflow menu
+- 2026-05-28: Fixed the Assistant tab route conflict so the nav opens the fullscreen Assistant screen directly, hides the bottom tab bar while active, and closes back to Today
+- 2026-05-28: Restored a visible path from fullscreen Assistant chat back to voice mode by keeping the voice/chat toggle available in chat and moving new-chat reset into a separate top-right action
+- 2026-05-28: Removed the Assistant voice screen's seeded demo transcript, added empty/listening states, kept only live spoken words in the transcript area, and replaced the custom bottom glyph with a proper mic icon
+- 2026-05-28: Kept spoken user transcript visible above the agent response on the fullscreen Assistant voice screen, added spoken assistant replies via `expo-speech`, and reduced the mic button/icon size
+- 2026-05-28: Made fullscreen Assistant voice text ephemeral by auto-clearing the visible user transcript and agent reply about 5 seconds after each update, so the screen resets itself between turns
