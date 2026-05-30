@@ -70,17 +70,6 @@ export default function AnalyticsScreen() {
   const habits = useAppStore(useShallow((state) => state.habits.filter((habit) => !habit.archivedAt)));
   const logs = useAppStore((state) => state.logs);
 
-  if (!habits.length) {
-    return (
-      <ScreenShell title="Analytics" subtitle="See your habit trends and progress.">
-        <EmptyState
-          title="Analytics will build itself"
-          subtitle="Create a few habits and start logging them. This screen will turn into a live dashboard from your real progress."
-        />
-      </ScreenShell>
-    );
-  }
-
   const last7Days = getDayKeysEndingOn(selectedEndDateKey, 7);
   const previous7Days = getDayKeysEndingOn(format(subDays(parseISO(selectedEndDateKey), 7), 'yyyy-MM-dd'), 7);
   const selectableEndDates = getSelectableEndDateKeys(30);
@@ -129,6 +118,17 @@ export default function AnalyticsScreen() {
       sheetTranslateY.setValue(0);
     }
   }, [isRangePickerOpen, sheetTranslateY]);
+
+  if (!habits.length) {
+    return (
+      <ScreenShell title="Analytics" subtitle="See your habit trends and progress.">
+        <EmptyState
+          title="Analytics will build itself"
+          subtitle="Create a few habits and start logging them. This screen will turn into a live dashboard from your real progress."
+        />
+      </ScreenShell>
+    );
+  }
 
   const weekScheduled = sum(weeklyTrend.map((day) => day.scheduledCount));
   const weekCompleted = sum(weeklyTrend.map((day) => day.completedCount));

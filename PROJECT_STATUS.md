@@ -117,3 +117,5 @@
 - 2026-05-28: Removed the Assistant voice screen's seeded demo transcript, added empty/listening states, kept only live spoken words in the transcript area, and replaced the custom bottom glyph with a proper mic icon
 - 2026-05-28: Kept spoken user transcript visible above the agent response on the fullscreen Assistant voice screen, added spoken assistant replies via `expo-speech`, and reduced the mic button/icon size
 - 2026-05-28: Made fullscreen Assistant voice text ephemeral by auto-clearing the visible user transcript and agent reply about 5 seconds after each update, so the screen resets itself between turns
+- 2026-05-28: Smoothed the fullscreen Assistant voice reset with a short fade-out on both transcript and agent reply before they clear
+- 2026-05-28: Rebuilt onboarding into a dark swipeable illustration carousel using the new asset images, added 5-second auto-advance with manual swiping, and routed both `Next` and `Sign in` to the auth screen

@@ -56,6 +56,8 @@ export default function AssistantVoiceScreen() {
   const idlePulse = useRef(new Animated.Value(0)).current;
   const speechPulse = useRef(new Animated.Value(0)).current;
   const waveShift = useRef(new Animated.Value(0)).current;
+  const transcriptOpacity = useRef(new Animated.Value(1)).current;
+  const agentOpacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     const idleLoop = Animated.loop(
@@ -128,13 +130,23 @@ export default function AssistantVoiceScreen() {
     }
 
     if (!transcript.trim()) {
+      transcriptOpacity.setValue(1);
       return;
     }
 
+    transcriptOpacity.setValue(1);
     transcriptClearTimeoutRef.current = setTimeout(() => {
-      setTranscript('');
-      setLiveWordIndex(0);
-      transcriptClearTimeoutRef.current = null;
+      Animated.timing(transcriptOpacity, {
+        toValue: 0,
+        duration: 350,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }).start(() => {
+        setTranscript('');
+        setLiveWordIndex(0);
+        transcriptOpacity.setValue(1);
+        transcriptClearTimeoutRef.current = null;
+      });
     }, 5000);
 
     return () => {
@@ -143,7 +155,7 @@ export default function AssistantVoiceScreen() {
         transcriptClearTimeoutRef.current = null;
       }
     };
-  }, [transcript]);
+  }, [transcript, transcriptOpacity]);
 
   useEffect(() => {
     if (agentClearTimeoutRef.current) {
@@ -152,12 +164,22 @@ export default function AssistantVoiceScreen() {
     }
 
     if (!agentText.trim()) {
+      agentOpacity.setValue(1);
       return;
     }
 
+    agentOpacity.setValue(1);
     agentClearTimeoutRef.current = setTimeout(() => {
-      setAgentText('');
-      agentClearTimeoutRef.current = null;
+      Animated.timing(agentOpacity, {
+        toValue: 0,
+        duration: 350,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }).start(() => {
+        setAgentText('');
+        agentOpacity.setValue(1);
+        agentClearTimeoutRef.current = null;
+      });
     }, 5000);
 
     return () => {
@@ -166,7 +188,7 @@ export default function AssistantVoiceScreen() {
         agentClearTimeoutRef.current = null;
       }
     };
-  }, [agentText]);
+  }, [agentText, agentOpacity]);
 
   useSpeechRecognitionEvent('start', () => {
     setRecognizing(true);
@@ -300,7 +322,7 @@ export default function AssistantVoiceScreen() {
 
             <View style={styles.dialogueStack}>
               {words.length ? (
-                <View style={styles.voiceCopyBlock}>
+                <Animated.View style={[styles.voiceCopyBlock, { opacity: transcriptOpacity }]}>
                   <Text style={styles.voiceLabel}>You said</Text>
                   <View style={styles.transcriptWrap}>
                     {words.map((word, index) => (
@@ -335,7 +357,7 @@ export default function AssistantVoiceScreen() {
                       </Animated.View>
                     ))}
                   </View>
-                </View>
+                </Animated.View>
               ) : (
                 <View style={styles.emptyTranscriptState}>
                   <Text style={styles.emptyTranscriptTitle}>
@@ -348,10 +370,10 @@ export default function AssistantVoiceScreen() {
               )}
 
               {agentText ? (
-                <View style={styles.agentResponse}>
+                <Animated.View style={[styles.agentResponse, { opacity: agentOpacity }]}>
                   <Text style={styles.agentLabel}>AI agent</Text>
                   <Text style={styles.agentText}>{agentText}</Text>
-                </View>
+                </Animated.View>
               ) : null}
             </View>
 
@@ -558,6 +580,8 @@ export default function AssistantVoiceScreen() {
       clearTimeout(agentClearTimeoutRef.current);
       agentClearTimeoutRef.current = null;
     }
+    transcriptOpacity.setValue(1);
+    agentOpacity.setValue(1);
     setChatMessages([]);
     setChatDraft('');
     setTranscript('');
