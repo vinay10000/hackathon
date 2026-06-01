@@ -62,14 +62,33 @@ export type PremiumState = {
   provider: 'local-placeholder' | 'revenuecat';
 };
 
+export type AssistantMessageRole = 'user' | 'assistant' | 'system-preview';
+
+export type AssistantSessionStage =
+  | 'idle'
+  | 'conversation'
+  | 'needs-clarification'
+  | 'pending-confirmation'
+  | 'confirmed'
+  | 'cancelled'
+  | 'failed';
+
+export type AssistantSessionMessage = {
+  id: string;
+  role: AssistantMessageRole;
+  text: string;
+  createdAt: string;
+};
+
 export type AiCommandHistoryItem = {
   id: string;
+  sessionId?: string;
   input: string;
   interpretedText: string;
   intent: 'create' | 'modify' | 'delete' | 'archive' | 'restore' | 'complete' | 'skip' | 'log' | 'note' | 'summary' | 'recommendation' | 'unknown';
   preview: string;
   matchedHabitId?: string;
-  status: 'previewed' | 'confirmed' | 'cancelled' | 'needs-clarification' | 'failed';
+  status: 'previewed' | 'conversation' | 'confirmed' | 'cancelled' | 'needs-clarification' | 'pending-confirmation' | 'failed';
   createdAt: string;
 };
 

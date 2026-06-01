@@ -41,6 +41,7 @@ export default Sentry.wrap(function RootLayout() {
           <Stack.Screen name="habit/new" />
           <Stack.Screen name="habit/[id]" />
           <Stack.Screen name="habit/edit/[id]" />
+          <Stack.Screen name="today-progress" />
           <Stack.Screen name="archive" />
         </Stack>
       </SafeAreaProvider>

@@ -8,7 +8,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { getProfileAvatar } from '@/src/constants/profile';
 import { EmptyState } from '@/src/components/empty-state';
 import { HabitCard } from '@/src/components/habit-card';
-import { calculateStreak, getTodayProgress } from '@/src/domain/habits';
+import { calculateStreak, getHabitLogForDate, getTodayProgress } from '@/src/domain/habits';
 import { useAppStore, useTodayHabits } from '@/src/store/app-store';
 import { useThemeTokens } from '@/src/theme/colors';
 
@@ -64,7 +64,13 @@ export default function TodayScreen() {
       icon: getCategoryIcon(category),
     }));
 
-  const visibleHabits = selectedFilter === 'all' ? todayHabits : todayHabits.filter((habit) => habit.category === selectedFilter);
+  const completedTodayHabits = todayHabits.filter((habit) => getHabitLogForDate(logs, habit.id, dateKey)?.status === 'completed');
+  const visibleHabits =
+    selectedFilter === 'all'
+      ? todayHabits
+      : selectedFilter === 'completed'
+        ? completedTodayHabits
+        : todayHabits.filter((habit) => habit.category === selectedFilter);
 
   return (
     <SafeAreaView edges={['top']} style={[styles.safeArea, { backgroundColor: tokens.background }]}>
@@ -104,7 +110,7 @@ export default function TodayScreen() {
           ]}
         >
           <View style={styles.heroTopRow}>
-            <View style={styles.progressRingWrap}>
+            <Pressable style={styles.progressRingWrap} onPress={() => router.push('/today-progress')}>
               <View style={[styles.progressTrack, { borderColor: isLight ? '#d8e4f1' : 'rgba(148,163,184,0.18)' }]}>
                 <View style={[styles.progressArcPurple, { borderColor: progressRingColors[0] }]} />
                 <View style={[styles.progressArcBlue, { borderColor: progressRingColors[1] }]} />
@@ -114,13 +120,13 @@ export default function TodayScreen() {
                   <Text style={[styles.progressLabel, { color: isLight ? '#5c6b82' : 'rgba(226,232,240,0.82)' }]}>Daily Progress</Text>
                 </View>
               </View>
-            </View>
+            </Pressable>
 
             <View style={styles.heroSummary}>
               <Text style={[styles.heroTitle, { color: isLight ? '#0f766e' : '#4ade80' }]}>{encouragement.title}</Text>
               <Text style={[styles.heroBody, { color: isLight ? '#5c6b82' : 'rgba(226,232,240,0.84)' }]}>{encouragement.body}</Text>
 
-              <View style={styles.weekRow}>
+              <Pressable style={styles.weekRow} onPress={() => router.push('/today-progress')}>
                 {weeklyTrend.map((day, index) => (
                   <View key={day.key} style={styles.weekDay}>
                     <View style={[styles.weekBarTrack, { backgroundColor: isLight ? '#e7eef7' : 'rgba(148,163,184,0.16)' }]}>
@@ -140,7 +146,7 @@ export default function TodayScreen() {
                     </View>
                   </View>
                 ))}
-              </View>
+              </Pressable>
             </View>
           </View>
         </View>
@@ -182,6 +188,33 @@ export default function TodayScreen() {
               ]}
             >
               All
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ selected: selectedFilter === 'completed' }}
+            onPress={() => setSelectedFilter('completed')}
+            style={[
+              styles.filterChip,
+              {
+                backgroundColor: selectedFilter === 'completed' ? (isLight ? '#e7f0ff' : 'rgba(124,58,237,0.16)') : isLight ? '#ffffff' : '#09111d',
+                borderColor: selectedFilter === 'completed' ? (isLight ? '#b8cff8' : 'rgba(167,139,250,0.95)') : isLight ? '#d9e6f3' : 'rgba(96,165,250,0.10)',
+                shadowColor: selectedFilter === 'completed' ? '#8b5cf6' : 'transparent',
+              },
+            ]}
+          >
+            <Ionicons
+              name="checkmark-circle-outline"
+              size={14}
+              color={selectedFilter === 'completed' ? (isLight ? '#2563eb' : '#4ade80') : isLight ? '#64748b' : '#a78bfa'}
+            />
+            <Text
+              style={[
+                styles.filterText,
+                { color: selectedFilter === 'completed' ? (isLight ? '#1d4ed8' : '#ffffff') : isLight ? tokens.text : 'rgba(226,232,240,0.9)' },
+              ]}
+            >
+              Completed
             </Text>
           </Pressable>
           {hasArchivedHabits ? (

@@ -74,6 +74,18 @@ type ResolveHabitCommandOptions = {
   now?: Date;
 };
 
+export type AssistantConversationOptions = ResolveHabitCommandOptions & {
+  pendingInterpretedText?: string;
+  conversationHistory?: Array<{ role: 'user' | 'assistant'; text: string }>;
+};
+
+export type AssistantConversationTurn = {
+  combinedInput: string;
+  preview: AiCommandPreview;
+  assistantText: string;
+  stage: 'conversation' | 'needs-clarification' | 'pending-confirmation';
+};
+
 type ModelDraftFields = Partial<{
   name: string;
   kind: HabitKind;
@@ -131,6 +143,30 @@ export async function resolveHabitCommand(
   }
 
   return interpretHabitCommand(interpretedText, habits, logs, options);
+}
+
+export async function resolveAssistantConversationTurn(
+  input: string,
+  habits: Habit[],
+  logs: HabitLog[],
+  options: AssistantConversationOptions = {},
+): Promise<AssistantConversationTurn> {
+  const trimmedInput = input.trim();
+  const combinedInput = [options.pendingInterpretedText?.trim(), trimmedInput].filter(Boolean).join(' ').trim();
+  const preview = await resolveHabitCommand(combinedInput || trimmedInput, habits, logs, options);
+  const assistantText = await buildAssistantTextFromPreview(preview, habits, logs, options);
+
+  return {
+    combinedInput: preview.interpretedText || combinedInput || trimmedInput,
+    preview,
+    assistantText,
+    stage:
+      preview.status === 'needs-clarification'
+        ? 'needs-clarification'
+        : preview.execution
+          ? 'pending-confirmation'
+          : 'conversation',
+  };
 }
 
 export function interpretHabitCommand(
@@ -1262,4 +1298,110 @@ function lifecycleVerb(intent: 'delete' | 'archive' | 'restore') {
     case 'restore':
       return 'Restore habit';
   }
+}
+
+async function buildAssistantTextFromPreview(
+  preview: AiCommandPreview,
+  habits: Habit[],
+  logs: HabitLog[],
+  options: AssistantConversationOptions,
+) {
+  if (preview.status === 'needs-clarification') {
+    if (preview.disambiguationOptions?.length) {
+      return `${preview.preview} I can show the closest matches below so you can pick the right one quickly.`;
+    }
+    return preview.preview;
+  }
+
+  if (preview.execution) {
+    return buildNaturalConfirmationText(preview);
+  }
+
+  return buildConversationalReply(preview, habits, logs, options);
+}
+
+function buildNaturalConfirmationText(preview: AiCommandPreview) {
+  switch (preview.intent) {
+    case 'create':
+      return 'I put together a new habit draft for you. Review it below, and confirm only if it looks right.';
+    case 'modify':
+      return 'I mapped the update I think you want. Check the changes below, then confirm when they look correct.';
+    case 'complete':
+      return 'I found the completion update. Confirm it below and I will mark it done.';
+    case 'delete':
+      return preview.destructiveSuggestion
+        ? `I found the delete request. ${preview.destructiveSuggestion} If you still want to remove it, confirm below.`
+        : 'I found the delete request. Please confirm below before I remove anything.';
+    case 'archive':
+      return 'I prepared the archive action. Confirm below if you want me to move it out of your active habits.';
+    case 'restore':
+      return 'I found the restore action. Confirm below if you want it back in your active habits.';
+    case 'skip':
+      return 'I found the skip update. Confirm below if that is the right day and habit.';
+    case 'log':
+      return 'I prepared the progress update. Confirm below and I will save it.';
+    case 'note':
+      return 'I captured the note you want to save. Confirm below and I will add it to the right day.';
+    default:
+      return 'I understood the action. Review the details below, then confirm if you want me to continue.';
+  }
+}
+
+async function buildConversationalReply(
+  preview: AiCommandPreview,
+  habits: Habit[],
+  logs: HabitLog[],
+  options: AssistantConversationOptions,
+) {
+  if (preview.intent === 'summary' || preview.intent === 'recommendation') {
+    const prompt = [
+      `User request: ${preview.interpretedText}`,
+      `Structured preview: ${preview.preview}`,
+      `Active habits: ${JSON.stringify(habits.filter((habit) => !habit.archivedAt).slice(0, 20).map((habit) => ({
+        name: habit.name,
+        category: habit.category,
+        kind: habit.kind,
+        targetValue: habit.targetValue ?? null,
+        unit: habit.unit ?? '',
+      })))}`,
+      `Recent logs: ${JSON.stringify(logs.slice(-60))}`,
+      `Conversation history: ${JSON.stringify((options.conversationHistory ?? []).slice(-6))}`,
+      'Reply like a thoughtful in-app coach. Keep it short, warm, and practical.',
+    ].join('\n\n');
+
+    try {
+      return await generateGeminiText(prompt, {
+        systemInstruction:
+          preview.intent === 'summary'
+            ? 'You are a concise in-app habit coach summarizing the user progress with empathy and specifics from the provided data only.'
+            : 'You are a concise in-app habit coach giving practical suggestions grounded in the provided habit data only.',
+      });
+    } catch {
+      return preview.preview;
+    }
+  }
+
+  if (preview.intent === 'unknown') {
+    const prompt = [
+      `User message: ${preview.interpretedText}`,
+      `Conversation history: ${JSON.stringify((options.conversationHistory ?? []).slice(-8))}`,
+      `Active habits: ${JSON.stringify(habits.filter((habit) => !habit.archivedAt).slice(0, 16).map((habit) => ({
+        name: habit.name,
+        category: habit.category,
+        kind: habit.kind,
+      })))}`,
+      'Reply as a real conversational AI habit assistant. Be helpful, short, friendly, and suggest concrete next steps when useful. Do not invent actions or claim data changed.',
+    ].join('\n\n');
+
+    try {
+      return await generateGeminiText(prompt, {
+        systemInstruction:
+          'You are HabitAI, a mobile habit assistant. Answer naturally, stay practical, and keep replies concise enough for a chat bubble.',
+      });
+    } catch {
+      return 'I can help you plan habits, adjust existing ones, explain your progress, or turn an idea into a habit. Tell me what you want to work on.';
+    }
+  }
+
+  return preview.preview;
 }

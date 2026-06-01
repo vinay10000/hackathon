@@ -35,9 +35,9 @@
 - Added local-first premium entitlement seam for gating future multiple reminders, streak freeze, export, backup, premium analytics, and AI limits
 - Added local-first account/sync seam for guest mode, email session upgrade, queued sync status, and offline-safe persistence
 - Added Firebase Auth foundation using `google-services.json`, with Android native Google Sign-In, guest continuation, and a passwordless email-link sign-in flow
-- Replaced Assistant placeholder with editable text command previews, confirmation/cancel UX, ambiguity handling, microphone permission state, and local AI command history deletion
-- Added local Assistant execution for confirmed complete, skip, archive, restore, delete, note, and measurable log commands
-- Integrated `expo-speech-recognition` for microphone permissions, start/stop listening, live transcript capture, speech errors, and typed fallback in Assistant
+- Replaced Assistant placeholder with a shared voice/chat assistant flow, multi-turn clarification, confirmation-first action previews, and local AI command history tracking
+- Added local Assistant execution for confirmed create, modify, complete, and delete actions in the new unified flow
+- Integrated `expo-speech-recognition` and `expo-speech` for live transcript capture, spoken assistant replies, microphone permissions, and voice/chat continuity in Assistant
 - Added local data export seam, privacy-safe telemetry helper, and confirmed local data reset/account-deletion flow
 - Added delete confirmation for habit detail destructive actions
 - Extended AMOLED/theme token support into shared stat cards, empty states, habit cards, and habit creation/edit forms
@@ -55,7 +55,7 @@
 ## In Progress
 - Polishing the first five feature areas beyond the initial vertical slice
 - Tightening reminder behavior for complex schedules
-- Replacing placeholder Assistant content with real AI flows in a later milestone
+- Polishing the unified Assistant voice/chat experience and expanding supported safe actions beyond the current first set
 
 ## Not Started
 - Firestore sync service integration
@@ -71,7 +71,7 @@
 - Current architecture is intentionally local-first; Firebase, RevenueCat, and AI services are deferred until the manual tracking core is stable
 
 ## Current Caveats
-- Assistant tab is a local safety implementation with `expo-speech-recognition`; it previews, records, and executes supported confirmed local commands, but does not call remote AI services yet
+- Assistant tab now supports a real shared voice/chat conversation loop with live transcript, follow-up clarification, and confirmation-first local actions, but it still uses local-plus-Gemini helper logic rather than a dedicated backend AI action service
 - Reminders are implemented as a first pass and are strongest for daily or weekday habits; more complex schedule-aware reminder behavior still needs refinement
 - Theme preference and AMOLED support are implemented across shell, tabs, settings, assistant, shared stat/empty/habit cards, habit detail, and the refreshed create/edit habit forms; analytics and calendar still need final visual polish
 - Firebase Auth is wired for Android native Google Sign-In plus passwordless email-link sign-in; this is not a true numeric email OTP flow and may still need finalized authorized-domain/deep-link handling for production polish
@@ -83,7 +83,7 @@
 - Finish tokenizing legacy cards/forms/details so Light, Dark, and AMOLED are consistent everywhere
 - Add Firestore sync and Cloud Functions seams
 - Keep premium checks local for now; do not add RevenueCat until subscriptions become a real release target
-- Connect backend AI intent parsing to the Assistant confirmation flow
+- Connect backend AI intent parsing and server-side tool execution to the Assistant confirmation flow
 - Add focused accessibility labels, dynamic-type checks, and non-color-only status labels across habit cards and analytics
 
 ## Last Updated
@@ -119,3 +119,6 @@
 - 2026-05-28: Made fullscreen Assistant voice text ephemeral by auto-clearing the visible user transcript and agent reply about 5 seconds after each update, so the screen resets itself between turns
 - 2026-05-28: Smoothed the fullscreen Assistant voice reset with a short fade-out on both transcript and agent reply before they clear
 - 2026-05-28: Rebuilt onboarding into a dark swipeable illustration carousel using the new asset images, added 5-second auto-advance with manual swiping, and routed both `Next` and `Sign in` to the auth screen
+- 2026-05-30: Rebuilt the Assistant screen into one shared voice/chat assistant with persistent conversation history, live voice transcript, spoken AI replies, clarification loops, and explicit confirmation cards for create/modify/complete/delete actions
+- 2026-05-30: Refined the auth screen into a more mobile-native entry experience with stronger hierarchy, benefit chips, clearer Google-vs-guest guidance, and better accessibility/loading/error states
+- 2026-05-30: Reworked the auth screen again into a cleaner two-zone mobile composition with a stronger preview panel, segmented habit-mode storytelling, and a more intentional action sheet

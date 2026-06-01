@@ -1,44 +1,27 @@
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ScreenShell } from '@/src/components/screen-shell';
 import { AuthProvider, getNativeGoogleErrorMessage, signInWithNativeGoogle } from '@/src/lib/auth';
 import { useAppStore } from '@/src/store/app-store';
 import { useThemeTokens } from '@/src/theme/colors';
-
-const authSlides = [
-  {
-    eyebrow: 'Build good habits',
-    title: 'Keep it simple.',
-    body: 'Track daily. Stay steady.',
-    accent: '#8dd13f',
-    glow: '#1e3520',
-  },
-  {
-    eyebrow: 'Break bad habits',
-    title: 'See the pattern.',
-    body: 'Notice it. Interrupt it.',
-    accent: '#ff5d8f',
-    glow: '#3f1a29',
-  },
-];
 
 type BusyState = 'google' | 'guest' | null;
 
 export default function AuthScreen() {
   const tokens = useThemeTokens();
+  const insets = useSafeAreaInsets();
   const startFirebaseSession = useAppStore((state) => state.startFirebaseSession);
   const continueAsGuest = useAppStore((state) => state.continueAsGuest);
   const completeOnboarding = useAppStore((state) => state.completeOnboarding);
   const onboardingComplete = useAppStore((state) => state.preferences.onboardingComplete);
   const [busy, setBusy] = useState<BusyState>(null);
   const [error, setError] = useState<string | null>(null);
-  const [slideIndex, setSlideIndex] = useState(0);
 
-  const activeSlide = authSlides[slideIndex];
-  const guestButtonLabel = useMemo(() => (busy === 'guest' ? 'Opening...' : 'Continue as guest'), [busy]);
+  const isLight = tokens.mode === 'light';
 
   async function finishAuth(action: () => Promise<{ uid: string; email?: string; displayName?: string; provider: AuthProvider }>) {
     setError(null);
@@ -60,197 +43,272 @@ export default function AuthScreen() {
 
   function handleGuestContinue() {
     setBusy('guest');
+    setError(null);
     completeOnboarding();
     continueAsGuest();
     router.replace('/today');
   }
 
   return (
-    <ScreenShell title="HabitAI" subtitle="Start clean.">
-      <View style={[styles.hero, { backgroundColor: tokens.mode === 'light' ? '#101620' : '#05080d', borderColor: tokens.border }]}>
-        <View style={styles.heroTop}>
-          <View>
-            <Text style={[styles.eyebrow, { color: activeSlide.accent }]}>{activeSlide.eyebrow}</Text>
-            <Text style={styles.heroTitle}>{activeSlide.title}</Text>
-            <Text style={styles.heroBody}>{activeSlide.body}</Text>
-          </View>
+    <View style={[styles.container, { backgroundColor: tokens.background }]}>
+      <LinearGradient
+        colors={isLight ? ['#f8fafc', '#f1f5f9', '#e2e8f0'] : ['#0f172a', '#1e293b', '#334155']}
+        style={StyleSheet.absoluteFill}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      />
 
-          <View style={[styles.artWrap, { backgroundColor: activeSlide.glow }]}>
-            <View style={[styles.ring, { borderColor: activeSlide.accent }]} />
-            <View style={[styles.core, { backgroundColor: activeSlide.accent }]}>
-              <Ionicons color="#081018" name={slideIndex === 0 ? 'checkmark' : 'remove'} size={28} />
+      <SafeAreaView edges={['top', 'bottom']} style={styles.safeArea}>
+        <ScrollView
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom + 32, 48) }]}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Hero Section */}
+          <View style={styles.hero}>
+            <View style={[styles.logoContainer, { backgroundColor: isLight ? '#ffffff' : '#1e293b' }]}>
+              <Ionicons name="leaf" size={32} color={isLight ? '#84cc16' : '#a3e635'} />
             </View>
+
+            <Text style={[styles.appTitle, { color: tokens.text }]}>HabitAI</Text>
+            <Text style={[styles.tagline, { color: tokens.textMuted }]}>Build better habits, one day at a time</Text>
           </View>
-        </View>
 
-        <View style={styles.dotsRow}>
-          {authSlides.map((slide, index) => {
-            const active = index === slideIndex;
-            return (
-              <Pressable
-                key={slide.eyebrow}
-                accessibilityRole="button"
-                accessibilityLabel={`Show ${slide.eyebrow.toLowerCase()} card`}
-                onPress={() => setSlideIndex(index)}
-                style={[styles.dot, { backgroundColor: active ? slide.accent : '#4c5568', width: active ? 22 : 8 }]}
-              />
-            );
-          })}
-        </View>
+          {/* Features */}
+          <View style={styles.features}>
+            {[
+              { icon: 'checkmark-circle-outline', text: 'Track habits effortlessly' },
+              { icon: 'trending-up-outline', text: 'Visualize your progress' },
+              { icon: 'shield-checkmark-outline', text: 'Private and secure' },
+            ].map((feature, index) => (
+              <View key={index} style={styles.featureItem}>
+                <Ionicons name={feature.icon as any} size={20} color={isLight ? '#84cc16' : '#a3e635'} />
+                <Text style={[styles.featureText, { color: tokens.textMuted }]}>{feature.text}</Text>
+              </View>
+            ))}
+          </View>
 
-        <View style={styles.actionStack}>
-          <Pressable
-            onPress={() => {
-              setBusy('google');
-              finishAuth(signInWithNativeGoogle);
-            }}
-            style={[styles.primaryAction, { backgroundColor: '#f6f8fb', opacity: busy ? 0.82 : 1 }]}
-          >
-            {busy === 'google' ? <ActivityIndicator color="#111827" /> : <Ionicons color="#fbbc05" name="logo-google" size={20} />}
-            <Text style={styles.primaryActionLabel}>Continue with Google</Text>
-          </Pressable>
+          {/* Auth Actions */}
+          <View style={styles.authActions}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Sign in with Google"
+              accessibilityState={{ busy: busy === 'google', disabled: busy !== null }}
+              disabled={busy !== null}
+              onPress={() => {
+                setBusy('google');
+                finishAuth(signInWithNativeGoogle);
+              }}
+              style={({ pressed }) => [
+                styles.primaryButton,
+                { backgroundColor: isLight ? '#ffffff' : '#1e293b' },
+                pressed && styles.buttonPressed,
+                busy !== null && styles.buttonDisabled,
+              ]}
+            >
+              {busy === 'google' ? (
+                <ActivityIndicator color={tokens.text} />
+              ) : (
+                <>
+                  <Ionicons name="logo-google" size={22} color="#4285f4" />
+                  <Text style={[styles.primaryButtonText, { color: tokens.text }]}>Continue with Google</Text>
+                </>
+              )}
+            </Pressable>
 
-          <Pressable
-            onPress={handleGuestContinue}
-            style={[styles.secondaryAction, { borderColor: '#2e3647', backgroundColor: 'rgba(255,255,255,0.04)' }]}
-          >
-            {busy === 'guest' ? <ActivityIndicator color="#f7f9fc" /> : <Ionicons color="#f7f9fc" name="person-outline" size={18} />}
-            <Text style={styles.secondaryActionLabel}>{guestButtonLabel}</Text>
-          </Pressable>
-        </View>
+            <View style={styles.divider}>
+              <View style={[styles.dividerLine, { backgroundColor: tokens.border }]} />
+              <Text style={[styles.dividerText, { color: tokens.textMuted }]}>or</Text>
+              <View style={[styles.dividerLine, { backgroundColor: tokens.border }]} />
+            </View>
 
-        <Text style={styles.legalText}>Terms • Privacy</Text>
-      </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Continue as guest"
+              accessibilityState={{ busy: busy === 'guest', disabled: busy !== null }}
+              disabled={busy !== null}
+              onPress={handleGuestContinue}
+              style={({ pressed }) => [
+                styles.secondaryButton,
+                { borderColor: tokens.border },
+                pressed && styles.buttonPressed,
+                busy !== null && styles.buttonDisabled,
+              ]}
+            >
+              {busy === 'guest' ? (
+                <ActivityIndicator color={tokens.text} />
+              ) : (
+                <>
+                  <Ionicons name="person-outline" size={22} color={tokens.text} />
+                  <Text style={[styles.secondaryButtonText, { color: tokens.text }]}>Continue as guest</Text>
+                </>
+              )}
+            </Pressable>
+          </View>
 
-      {error ? (
-        <View style={[styles.errorBox, { backgroundColor: tokens.mode === 'light' ? '#fee2e2' : '#3a1118', borderColor: tokens.danger }]}>
-          <Text style={[styles.errorText, { color: tokens.danger }]}>{error}</Text>
-        </View>
-      ) : null}
+          {/* Error Message */}
+          {error ? (
+            <View
+              accessibilityLiveRegion="polite"
+              style={[styles.errorContainer, { backgroundColor: isLight ? '#fee2e2' : '#3a1118', borderColor: tokens.danger }]}
+            >
+              <Ionicons name="alert-circle" size={18} color={tokens.danger} />
+              <Text style={[styles.errorText, { color: tokens.danger }]}>{error}</Text>
+            </View>
+          ) : null}
 
-      {onboardingComplete ? (
-        <Pressable onPress={() => router.back()} style={styles.backLink}>
-          <Text style={[styles.backLinkText, { color: tokens.textMuted }]}>Back</Text>
-        </Pressable>
-      ) : null}
-    </ScreenShell>
+          {/* Footer */}
+          <Text style={[styles.footerText, { color: tokens.textMuted }]}>
+            By continuing, you agree to our Terms of Service and Privacy Policy
+          </Text>
+
+          {onboardingComplete ? (
+            <Pressable onPress={() => router.back()} style={styles.backButton}>
+              <Ionicons name="arrow-back" size={18} color={tokens.textMuted} />
+              <Text style={[styles.backButtonText, { color: tokens.textMuted }]}>Back</Text>
+            </Pressable>
+          ) : null}
+        </ScrollView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  safeArea: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    paddingTop: 40,
+    gap: 40,
+  },
   hero: {
-    borderWidth: 1,
-    borderRadius: 32,
-    padding: 22,
-    gap: 20,
-    overflow: 'hidden',
+    alignItems: 'center',
+    gap: 16,
   },
-  heroTop: {
-    gap: 24,
-  },
-  eyebrow: {
-    fontSize: 13,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  heroTitle: {
-    marginTop: 10,
-    color: '#f7f9fc',
-    fontSize: 30,
-    lineHeight: 34,
-    fontWeight: '900',
-  },
-  heroBody: {
-    marginTop: 8,
-    color: '#9ca6bb',
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  artWrap: {
-    height: 180,
-    borderRadius: 28,
+  logoContainer: {
+    width: 72,
+    height: 72,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 5,
   },
-  ring: {
-    position: 'absolute',
-    width: 156,
-    height: 156,
-    borderRadius: 999,
-    borderWidth: 1,
-    opacity: 0.35,
+  appTitle: {
+    fontSize: 40,
+    fontWeight: '700',
+    letterSpacing: -1,
   },
-  core: {
-    width: 92,
-    height: 92,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
+  tagline: {
+    fontSize: 16,
+    textAlign: 'center',
+    maxWidth: 280,
   },
-  dotsRow: {
+  features: {
+    gap: 16,
+  },
+  featureItem: {
     flexDirection: 'row',
-    gap: 8,
     alignItems: 'center',
+    gap: 12,
+    paddingVertical: 4,
   },
-  dot: {
-    height: 8,
-    borderRadius: 999,
+  featureText: {
+    fontSize: 15,
+    fontWeight: '500',
   },
-  actionStack: {
+  authActions: {
+    gap: 16,
+  },
+  primaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  primaryButtonText: {
+    fontSize: 17,
+    fontWeight: '600',
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 12,
   },
-  primaryAction: {
-    minHeight: 56,
-    borderRadius: 18,
+  dividerLine: {
+    flex: 1,
+    height: 1,
+  },
+  dividerText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  secondaryButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
-    paddingHorizontal: 18,
+    gap: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    borderWidth: 1.5,
   },
-  primaryActionLabel: {
-    color: '#111827',
-    fontSize: 16,
-    fontWeight: '800',
+  secondaryButtonText: {
+    fontSize: 17,
+    fontWeight: '600',
   },
-  secondaryAction: {
-    minHeight: 54,
-    borderRadius: 18,
-    borderWidth: 1,
+  buttonPressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.98 }],
+  },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+  errorContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     gap: 10,
-    paddingHorizontal: 18,
-  },
-  secondaryActionLabel: {
-    color: '#f7f9fc',
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  legalText: {
-    color: '#6f7a90',
-    textAlign: 'center',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  errorBox: {
+    padding: 16,
+    borderRadius: 12,
     borderWidth: 1,
-    borderRadius: 18,
-    padding: 14,
   },
   errorText: {
-    fontWeight: '700',
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '500',
     lineHeight: 20,
   },
-  backLink: {
-    alignItems: 'center',
-    paddingTop: 4,
-  },
-  backLinkText: {
+  footerText: {
     fontSize: 13,
-    fontWeight: '700',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+  },
+  backButtonText: {
+    fontSize: 15,
+    fontWeight: '500',
   },
 });

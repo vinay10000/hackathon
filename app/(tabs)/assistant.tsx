@@ -2,13 +2,31 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import * as Speech from 'expo-speech';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Easing,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 
-import { AiCommandPreview, resolveHabitCommand } from '@/src/lib/ai-assistant';
-import { generateGeminiText } from '@/src/lib/gemini';
+import {
+  AiCommandPreview,
+  resolveAssistantConversationTurn,
+} from '@/src/lib/ai-assistant';
 import { useAppStore } from '@/src/store/app-store';
+import { AssistantSessionMessage } from '@/src/types/habits';
+
+type InteractionMode = 'voice' | 'chat';
 
 type ResultPopup = {
   type: 'success' | 'failure';
@@ -16,14 +34,15 @@ type ResultPopup = {
   message: string;
 };
 
-type InteractionMode = 'voice' | 'chat';
-type ChatMessage = {
-  id: string;
-  role: 'user' | 'agent';
-  text: string;
+type PendingAssistantAction = {
+  sessionId: string;
+  preview: AiCommandPreview;
+  combinedInput: string;
+  assistantText: string;
+  selectedHabitId?: string;
 };
 
-export default function AssistantVoiceScreen() {
+export default function AssistantScreen() {
   const insets = useSafeAreaInsets();
   const habits = useAppStore((state) => state.habits);
   const logs = useAppStore((state) => state.logs);
@@ -31,33 +50,29 @@ export default function AssistantVoiceScreen() {
   const addAiHistoryItem = useAppStore((state) => state.addAiHistoryItem);
   const updateAiHistoryStatus = useAppStore((state) => state.updateAiHistoryStatus);
   const setMicrophonePermission = useAppStore((state) => state.setMicrophonePermission);
-  const completeHabit = useAppStore((state) => state.completeHabit);
-  const skipHabit = useAppStore((state) => state.skipHabit);
-  const archiveHabit = useAppStore((state) => state.archiveHabit);
-  const restoreHabit = useAppStore((state) => state.restoreHabit);
-  const deleteHabit = useAppStore((state) => state.deleteHabit);
-  const updateHabitNote = useAppStore((state) => state.updateHabitNote);
-  const updateHabitValue = useAppStore((state) => state.updateHabitValue);
   const saveHabit = useAppStore((state) => state.saveHabit);
+  const completeHabit = useAppStore((state) => state.completeHabit);
+  const deleteHabit = useAppStore((state) => state.deleteHabit);
+
+  const [interactionMode, setInteractionMode] = useState<InteractionMode>('voice');
+  const [messages, setMessages] = useState<AssistantSessionMessage[]>([]);
+  const [chatDraft, setChatDraft] = useState('');
   const [transcript, setTranscript] = useState('');
-  const [agentText, setAgentText] = useState('');
-  const [resultPopup, setResultPopup] = useState<ResultPopup | null>(null);
   const [recognizing, setRecognizing] = useState(false);
   const [processing, setProcessing] = useState(false);
-  const [interactionMode, setInteractionMode] = useState<InteractionMode>('voice');
-  const [chatDraft, setChatDraft] = useState('');
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [speechError, setSpeechError] = useState('');
+  const [resultPopup, setResultPopup] = useState<ResultPopup | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingAssistantAction | null>(null);
+  const [sessionId, setSessionId] = useState(createSessionId());
+  const [selectedHabitId, setSelectedHabitId] = useState<string | undefined>(undefined);
   const [liveWordIndex, setLiveWordIndex] = useState(0);
+
   const transcriptRef = useRef('');
   const processedTranscriptRef = useRef('');
-  const transcriptClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const agentClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollViewRef = useRef<ScrollView | null>(null);
   const idlePulse = useRef(new Animated.Value(0)).current;
   const speechPulse = useRef(new Animated.Value(0)).current;
   const waveShift = useRef(new Animated.Value(0)).current;
-  const transcriptOpacity = useRef(new Animated.Value(1)).current;
-  const agentOpacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     const idleLoop = Animated.loop(
@@ -115,86 +130,21 @@ export default function AssistantVoiceScreen() {
   }, [idlePulse, speechPulse, waveShift]);
 
   useEffect(() => {
-    const words = getTranscriptWords(transcript);
-    if (!recognizing || words.length <= 1) {
-      return;
+    if (recognizing) {
+      setLiveWordIndex(Math.max(getTranscriptWords(transcript).length - 1, 0));
     }
-
-    setLiveWordIndex(Math.max(words.length - 1, 0));
   }, [recognizing, transcript]);
 
   useEffect(() => {
-    if (transcriptClearTimeoutRef.current) {
-      clearTimeout(transcriptClearTimeoutRef.current);
-      transcriptClearTimeoutRef.current = null;
+    if (interactionMode === 'chat') {
+      requestAnimationFrame(() => scrollViewRef.current?.scrollToEnd({ animated: true }));
     }
-
-    if (!transcript.trim()) {
-      transcriptOpacity.setValue(1);
-      return;
-    }
-
-    transcriptOpacity.setValue(1);
-    transcriptClearTimeoutRef.current = setTimeout(() => {
-      Animated.timing(transcriptOpacity, {
-        toValue: 0,
-        duration: 350,
-        easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
-      }).start(() => {
-        setTranscript('');
-        setLiveWordIndex(0);
-        transcriptOpacity.setValue(1);
-        transcriptClearTimeoutRef.current = null;
-      });
-    }, 5000);
-
-    return () => {
-      if (transcriptClearTimeoutRef.current) {
-        clearTimeout(transcriptClearTimeoutRef.current);
-        transcriptClearTimeoutRef.current = null;
-      }
-    };
-  }, [transcript, transcriptOpacity]);
-
-  useEffect(() => {
-    if (agentClearTimeoutRef.current) {
-      clearTimeout(agentClearTimeoutRef.current);
-      agentClearTimeoutRef.current = null;
-    }
-
-    if (!agentText.trim()) {
-      agentOpacity.setValue(1);
-      return;
-    }
-
-    agentOpacity.setValue(1);
-    agentClearTimeoutRef.current = setTimeout(() => {
-      Animated.timing(agentOpacity, {
-        toValue: 0,
-        duration: 350,
-        easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
-      }).start(() => {
-        setAgentText('');
-        agentOpacity.setValue(1);
-        agentClearTimeoutRef.current = null;
-      });
-    }, 5000);
-
-    return () => {
-      if (agentClearTimeoutRef.current) {
-        clearTimeout(agentClearTimeoutRef.current);
-        agentClearTimeoutRef.current = null;
-      }
-    };
-  }, [agentText, agentOpacity]);
+  }, [interactionMode, messages, pendingAction]);
 
   useSpeechRecognitionEvent('start', () => {
     setRecognizing(true);
     setProcessing(false);
     setSpeechError('');
-    setAgentText('');
     setResultPopup(null);
     setTranscript('');
     transcriptRef.current = '';
@@ -207,7 +157,7 @@ export default function AssistantVoiceScreen() {
     const finalTranscript = transcriptRef.current.trim();
     if (finalTranscript && finalTranscript !== processedTranscriptRef.current) {
       processedTranscriptRef.current = finalTranscript;
-      void handleVoiceCommand(finalTranscript);
+      void handleUserTurn(finalTranscript, 'voice');
     }
   });
 
@@ -220,112 +170,112 @@ export default function AssistantVoiceScreen() {
       .trim();
 
     if (nextTranscript) {
-      const words = getTranscriptWords(nextTranscript);
       setTranscript(nextTranscript);
       transcriptRef.current = nextTranscript;
-      setLiveWordIndex(Math.max(words.length - 1, 0));
+      setLiveWordIndex(Math.max(getTranscriptWords(nextTranscript).length - 1, 0));
     }
   });
 
   useSpeechRecognitionEvent('error', (event) => {
     setRecognizing(false);
-    setSpeechError(event.message || 'Could not hear that clearly.');
-    setAgentText('I could not transcribe that clearly.');
+    const message = event.message || 'Could not hear that clearly.';
+    setSpeechError(message);
     setResultPopup({
       type: 'failure',
       title: 'Speech failed',
-      message: event.message || 'Try again in a quieter place.',
+      message,
     });
     if (event.error === 'not-allowed') {
       setMicrophonePermission('denied');
     }
   });
 
-  const words = useMemo(() => getTranscriptWords(transcript), [transcript]);
-  const activeWordIndex = Math.min(liveWordIndex, Math.max(words.length - 1, 0));
+  const voiceMessages = useMemo(() => messages.slice(-4), [messages]);
+  const transcriptWords = useMemo(() => getTranscriptWords(transcript), [transcript]);
+  const activeWordIndex = Math.min(liveWordIndex, Math.max(transcriptWords.length - 1, 0));
   const orbScale = recognizing
-    ? speechPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] })
+    ? speechPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.05] })
     : processing
-      ? speechPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.035] })
-      : idlePulse.interpolate({ inputRange: [0, 1], outputRange: [0.985, 1.02] });
+      ? speechPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.03] })
+      : idlePulse.interpolate({ inputRange: [0, 1], outputRange: [0.99, 1.02] });
 
   return (
     <SafeAreaView edges={['top', 'bottom']} style={styles.safeArea}>
-      <View style={[styles.screen, interactionMode === 'chat' && styles.chatScreen]}>
-        <Pressable
-          accessibilityLabel="Close assistant"
-          accessibilityRole="button"
-          onPress={() => {
-            if (recognizing) {
-              stopListening();
-            }
-            router.replace('/today');
-          }}
-          style={[styles.closeButton, { top: Math.max(insets.top, 20) + 14 }]}
-        >
-          <Text style={styles.closeGlyph}>×</Text>
-        </Pressable>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
+        style={styles.safeArea}
+      >
+        <View style={styles.screen}>
+          <Pressable
+            accessibilityLabel="Close assistant"
+            accessibilityRole="button"
+            onPress={() => {
+              if (recognizing) {
+                stopListening();
+              }
+              router.replace('/today');
+            }}
+            style={[styles.closeButton, { top: Math.max(insets.top, 20) + 10 }]}
+          >
+            <Text style={styles.closeGlyph}>×</Text>
+          </Pressable>
 
-        <View
-          style={[
-            styles.topRightActions,
-            {
-              top: Math.max(insets.top, 20) + 20,
-              right: 22,
-            },
-          ]}
-        >
-          <View style={styles.modeSwitch}>
-            <ModeButton
-              icon="pulse"
-              active={interactionMode === 'voice'}
-              accessibilityLabel="Voice mode"
-              onPress={() => {
-                setInteractionMode('voice');
-                setResultPopup(null);
-              }}
-            />
-            <ModeButton
-              icon="create-outline"
-              active={interactionMode === 'chat'}
-              accessibilityLabel="AI chat mode"
-              onPress={() => {
-                if (recognizing) {
-                  stopListening();
-                }
-                setInteractionMode('chat');
-              }}
-            />
-          </View>
-
-          {interactionMode === 'chat' ? (
+          <View style={[styles.topRightActions, { top: Math.max(insets.top, 20) + 16, right: 20 }]}>
+            <View style={styles.modeSwitch}>
+              <ModeButton
+                icon="pulse"
+                active={interactionMode === 'voice'}
+                accessibilityLabel="Voice mode"
+                onPress={() => setInteractionMode('voice')}
+              />
+              <ModeButton
+                icon="chatbubble-ellipses-outline"
+                active={interactionMode === 'chat'}
+                accessibilityLabel="Chat mode"
+                onPress={() => {
+                  if (recognizing) {
+                    stopListening();
+                  }
+                  setInteractionMode('chat');
+                }}
+              />
+            </View>
             <Pressable
-              accessibilityLabel="Start new chat"
+              accessibilityLabel="Start new assistant session"
               accessibilityRole="button"
-              onPress={clearChat}
+              onPress={resetConversation}
               style={styles.newChatButton}
             >
-              <Ionicons name="refresh" size={19} color="rgba(226,232,240,0.82)" />
+              <Ionicons name="refresh" size={18} color="rgba(230,239,255,0.86)" />
             </Pressable>
-          ) : null}
-        </View>
+          </View>
 
-        {interactionMode === 'voice' ? (
-          <View style={styles.centerStage}>
-            <VoiceOrb idlePulse={idlePulse} speechPulse={speechPulse} waveShift={waveShift} active={recognizing || processing} scale={orbScale} />
+          {interactionMode === 'voice' ? (
+            <ScrollView
+              contentContainerStyle={[
+                styles.voiceContent,
+                { paddingTop: Math.max(insets.top, 20) + 84, paddingBottom: Math.max(insets.bottom, 18) + 160 },
+              ]}
+              showsVerticalScrollIndicator={false}
+            >
+              <VoiceOrb idlePulse={idlePulse} speechPulse={speechPulse} waveShift={waveShift} active={recognizing || processing} scale={orbScale} />
 
-            <View style={styles.stateRow}>
-              <StateBadge label="Idle" active={!recognizing && !processing} />
-              <View style={styles.stateDivider} />
-              <StateBadge label={processing ? 'Thinking' : 'Speaking'} active={recognizing || processing} highlighted />
-            </View>
+              <View style={styles.stateRow}>
+                <StateBadge label="Listening" active={recognizing} tone="listening" />
+                <StateBadge label="Thinking" active={processing && !recognizing} tone="thinking" />
+                <StateBadge
+                  label={pendingAction ? 'Confirming' : 'Ready'}
+                  active={!recognizing && !processing}
+                  tone={pendingAction ? 'confirm' : 'idle'}
+                />
+              </View>
 
-            <View style={styles.dialogueStack}>
-              {words.length ? (
-                <Animated.View style={[styles.voiceCopyBlock, { opacity: transcriptOpacity }]}>
-                  <Text style={styles.voiceLabel}>You said</Text>
+              <View style={styles.voiceStageCard}>
+                <Text style={styles.sectionEyebrow}>Live voice</Text>
+                {transcriptWords.length ? (
                   <View style={styles.transcriptWrap}>
-                    {words.map((word, index) => (
+                    {transcriptWords.map((word, index) => (
                       <Animated.View
                         key={`${word}-${index}`}
                         style={[
@@ -336,213 +286,274 @@ export default function AssistantVoiceScreen() {
                               {
                                 scale: speechPulse.interpolate({
                                   inputRange: [0, 1],
-                                  outputRange: [1, recognizing ? 1.06 : 1.02],
+                                  outputRange: [1, recognizing ? 1.05 : 1.02],
                                 }),
                               },
                             ],
                           },
                         ]}
                       >
-                        <Text
-                          style={[
-                            styles.word,
-                            index < activeWordIndex && styles.pastWord,
-                            index === activeWordIndex && styles.activeWord,
-                            index > activeWordIndex && styles.futureWord,
-                          ]}
-                        >
-                          {word}
-                        </Text>
-                        {index === activeWordIndex ? <View style={styles.wordWave} /> : null}
+                        <Text style={[styles.word, index === activeWordIndex ? styles.activeWord : styles.pastWord]}>{word}</Text>
                       </Animated.View>
                     ))}
                   </View>
-                </Animated.View>
-              ) : (
-                <View style={styles.emptyTranscriptState}>
-                  <Text style={styles.emptyTranscriptTitle}>
-                    {recognizing ? 'Listening...' : 'Tap the mic to speak'}
-                  </Text>
-                  <Text style={styles.emptyTranscriptBody}>
-                    {recognizing ? 'Your words will appear here in real time.' : 'Say a habit command and I will transcribe it live.'}
-                  </Text>
-                </View>
-              )}
-
-              {agentText ? (
-                <Animated.View style={[styles.agentResponse, { opacity: agentOpacity }]}>
-                  <Text style={styles.agentLabel}>AI agent</Text>
-                  <Text style={styles.agentText}>{agentText}</Text>
-                </Animated.View>
-              ) : null}
-            </View>
-
-            {speechError ? <Text style={styles.errorText}>{speechError}</Text> : null}
-          </View>
-        ) : (
-          <View style={[styles.chatThread, { paddingTop: Math.max(insets.top, 20) + 82 }]}>
-            {chatMessages.length ? (
-              chatMessages.map((message) => (
-                <View key={message.id} style={message.role === 'user' ? styles.chatUserRow : styles.chatAgentRow}>
-                  {message.role === 'agent' ? <View style={styles.agentDot} /> : null}
-                  <View style={[styles.chatBubble, message.role === 'user' ? styles.chatUserBubble : styles.chatAgentBubble]}>
-                    <Text style={styles.chatBubbleText}>{message.text}</Text>
+                ) : (
+                  <View style={styles.emptyVoiceState}>
+                    <Text style={styles.emptyVoiceTitle}>{recognizing ? 'Listening now' : 'Tap the mic to talk'}</Text>
+                    <Text style={styles.emptyVoiceBody}>
+                      {recognizing
+                        ? 'Your spoken words will appear here live.'
+                        : 'Speak naturally. I can coach you, ask follow-up questions, and prepare habit changes for confirmation.'}
+                    </Text>
                   </View>
-                </View>
-              ))
-            ) : (
-              <View style={styles.chatEmptyState}>
-                <Text style={styles.chatEmptyTitle}>Ask your AI habit coach</Text>
-                <Text style={styles.chatEmptyBody}>Type a habit command like “Run 10 km daily”. I’ll respond, then show success or failure.</Text>
+                )}
               </View>
-            )}
-            {processing ? (
-              <View style={styles.chatAgentRow}>
-                <View style={styles.agentDot} />
-                <View style={[styles.chatBubble, styles.chatAgentBubble]}>
-                  <Text style={styles.chatBubbleText}>Working...</Text>
-                </View>
-              </View>
-            ) : null}
-          </View>
-        )}
 
-        <Pressable
-          accessibilityLabel={recognizing ? 'Stop listening' : 'Start listening'}
-          accessibilityRole="button"
-          onPress={recognizing ? stopListening : startListening}
-          style={[
-            styles.micButton,
-            {
-              bottom: Math.max(insets.bottom, 18) + 34,
-              opacity: interactionMode === 'voice' ? 1 : 0,
-              pointerEvents: interactionMode === 'voice' ? 'auto' : 'none',
-            },
-          ]}
-        >
-          <View style={styles.micGlow} />
-          {recognizing || processing ? (
-            <View style={styles.stopGlyph}>
-              <Ionicons name="stop" size={20} color="#ffffff" />
-            </View>
+              {speechError ? <Text style={styles.errorText}>{speechError}</Text> : null}
+
+              {pendingAction ? (
+                <ConfirmationCard
+                  preview={pendingAction.preview}
+                  onConfirm={() => void confirmPendingAction()}
+                  onCancel={cancelPendingAction}
+                  onSelectHabit={(habitId) => void resolveDisambiguation(habitId)}
+                  busy={processing}
+                />
+              ) : null}
+
+              <View style={styles.voiceHistoryBlock}>
+                <Text style={styles.sectionEyebrow}>Conversation</Text>
+                {voiceMessages.length ? (
+                  voiceMessages.map((message) => <CompactMessage key={message.id} message={message} />)
+                ) : (
+                  <Text style={styles.emptyConversationText}>
+                    Your recent turns will stay here so you can see what you said, what I understood, and what happens next.
+                  </Text>
+                )}
+              </View>
+            </ScrollView>
           ) : (
-            <Ionicons name="mic" size={42} color="#1d8cff" />
-          )}
-        </Pressable>
-
-        {interactionMode === 'chat' ? (
-          <View style={[styles.chatComposer, { bottom: Math.max(insets.bottom, 18) + 34 }]}>
-            <TextInput
-              value={chatDraft}
-              onChangeText={setChatDraft}
-              placeholder="Type a habit command..."
-              placeholderTextColor="rgba(148,163,184,0.72)"
-              style={styles.chatInput}
-              returnKeyType="send"
-              onSubmitEditing={() => {
-                void submitChatDraft();
-              }}
-            />
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Send AI chat command"
-              onPress={() => {
-                void submitChatDraft();
-              }}
-              style={[styles.chatSendButton, (!chatDraft.trim() || processing) && styles.chatSendDisabled]}
-            >
-              <Ionicons name="arrow-up" size={22} color="#ffffff" />
-            </Pressable>
-          </View>
-        ) : null}
-
-        {resultPopup ? (
-          <View style={styles.popupBackdrop}>
-            <View style={[styles.resultPopup, resultPopup.type === 'failure' && styles.failurePopup]}>
-              <View style={[styles.popupIcon, resultPopup.type === 'failure' && styles.failureIcon]}>
-                <Ionicons name={resultPopup.type === 'success' ? 'checkmark' : 'alert'} size={22} color="#ffffff" />
-              </View>
-              <Text style={styles.popupTitle}>{resultPopup.title}</Text>
-              <Text style={styles.popupMessage}>{resultPopup.message}</Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Dismiss result"
-                onPress={() => setResultPopup(null)}
-                style={styles.popupButton}
+            <View style={styles.chatLayout}>
+              <ScrollView
+                ref={scrollViewRef}
+                style={styles.chatThread}
+                contentContainerStyle={{
+                  paddingTop: Math.max(insets.top, 20) + 86,
+                  paddingBottom: Math.max(insets.bottom, 18) + 140,
+                  paddingHorizontal: 18,
+                  gap: 14,
+                }}
+                showsVerticalScrollIndicator={false}
               >
-                <Text style={styles.popupButtonText}>OK</Text>
-              </Pressable>
+                {messages.length ? (
+                  messages.map((message) => <ThreadMessage key={message.id} message={message} />)
+                ) : (
+                  <View style={styles.chatEmptyState}>
+                    <Text style={styles.chatEmptyTitle}>Chat with your habit assistant</Text>
+                    <Text style={styles.chatEmptyBody}>
+                      Ask for coaching, talk through a goal, or tell me to create, update, delete, or complete a habit. I will confirm before changing anything.
+                    </Text>
+                  </View>
+                )}
+
+                {pendingAction ? (
+                  <ConfirmationCard
+                    preview={pendingAction.preview}
+                    onConfirm={() => void confirmPendingAction()}
+                    onCancel={cancelPendingAction}
+                    onSelectHabit={(habitId) => void resolveDisambiguation(habitId)}
+                    busy={processing}
+                  />
+                ) : null}
+
+                {processing ? (
+                  <View style={styles.typingRow}>
+                    <ActivityIndicator color="#2ed0ff" />
+                    <Text style={styles.typingText}>Thinking through that...</Text>
+                  </View>
+                ) : null}
+              </ScrollView>
+
+              <View style={[styles.chatComposer, { paddingBottom: Math.max(insets.bottom, 18) + 10 }]}>
+                <TextInput
+                  value={chatDraft}
+                  onChangeText={setChatDraft}
+                  placeholder="Ask anything about your habits..."
+                  placeholderTextColor="rgba(133,162,191,0.78)"
+                  style={styles.chatInput}
+                  multiline
+                />
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Send message"
+                  onPress={() => void submitChatDraft()}
+                  disabled={!chatDraft.trim() || processing}
+                  style={[styles.chatSendButton, (!chatDraft.trim() || processing) && styles.chatSendDisabled]}
+                >
+                  <Ionicons name="arrow-up" size={20} color="#08111f" />
+                </Pressable>
+              </View>
             </View>
-          </View>
-        ) : null}
-      </View>
+          )}
+
+          {interactionMode === 'voice' ? (
+            <Pressable
+              accessibilityLabel={recognizing ? 'Stop listening' : 'Start listening'}
+              accessibilityRole="button"
+              onPress={recognizing ? stopListening : () => void startListening()}
+              style={[styles.micButton, { bottom: Math.max(insets.bottom, 18) + 28 }]}
+            >
+              <View style={styles.micGlow} />
+              {recognizing || processing ? <Ionicons name="stop" size={24} color="#ffffff" /> : <Ionicons name="mic" size={28} color="#061322" />}
+            </Pressable>
+          ) : null}
+
+          {resultPopup ? (
+            <View style={styles.popupBackdrop}>
+              <View style={[styles.resultPopup, resultPopup.type === 'failure' && styles.failurePopup]}>
+                <View style={[styles.popupIcon, resultPopup.type === 'failure' && styles.failureIcon]}>
+                  <Ionicons name={resultPopup.type === 'success' ? 'checkmark' : 'alert'} size={20} color="#ffffff" />
+                </View>
+                <Text style={styles.popupTitle}>{resultPopup.title}</Text>
+                <Text style={styles.popupMessage}>{resultPopup.message}</Text>
+                <Pressable onPress={() => setResultPopup(null)} style={styles.popupButton}>
+                  <Text style={styles.popupButtonText}>OK</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
+        </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 
-  async function handleVoiceCommand(input: string) {
+  async function handleUserTurn(input: string, source: 'voice' | 'chat') {
+    const trimmed = input.trim();
+    if (!trimmed) {
+      return;
+    }
+
     if (!aiEnabled) {
       const message = 'The assistant is disabled in Settings.';
-      setAgentText(message);
+      addMessage('assistant', message);
       setResultPopup({ type: 'failure', title: 'Assistant disabled', message });
-      void speakAgentReply(message);
+      if (source === 'voice') {
+        void speakAgentReply(message);
+      }
       return;
     }
 
     setProcessing(true);
     setSpeechError('');
     setResultPopup(null);
+    addMessage('user', trimmed);
+    if (source === 'chat') {
+      setTranscript(trimmed);
+      transcriptRef.current = trimmed;
+    }
 
     try {
-      const preview = await resolveHabitCommand(input, habits, logs);
-      const workingText = getAgentWorkingText(preview);
-      setAgentText(workingText);
-      appendChatMessage('agent', workingText);
+      const history = messages
+        .slice(-8)
+        .filter((message) => message.role !== 'system-preview')
+        .map((message) => ({
+          role: (message.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
+          text: message.text,
+        }));
+
+      const turn = await resolveAssistantConversationTurn(trimmed, habits, logs, {
+        pendingInterpretedText: pendingAction?.combinedInput,
+        selectedHabitId,
+        conversationHistory: history,
+      });
 
       const historyItem = addAiHistoryItem({
-        input,
-        interpretedText: preview.interpretedText,
-        intent: preview.intent,
-        preview: preview.preview,
-        matchedHabitId: preview.matchedHabitId,
-        status: preview.status,
+        sessionId,
+        input: trimmed,
+        interpretedText: turn.combinedInput,
+        intent: turn.preview.intent,
+        preview: turn.preview.preview,
+        matchedHabitId: turn.preview.matchedHabitId,
+        status:
+          turn.stage === 'pending-confirmation'
+            ? 'pending-confirmation'
+            : turn.stage === 'needs-clarification'
+              ? 'needs-clarification'
+              : 'conversation',
       });
 
-      if (preview.status !== 'previewed') {
-        updateAiHistoryStatus(historyItem.id, 'failed');
-        setResultPopup({
-          type: 'failure',
-          title: 'Need more detail',
-          message: preview.preview,
+      addMessage(turn.preview.execution ? 'system-preview' : 'assistant', turn.assistantText);
+
+      if (turn.preview.execution) {
+        setPendingAction({
+          sessionId: historyItem.id,
+          preview: turn.preview,
+          combinedInput: turn.combinedInput,
+          assistantText: turn.assistantText,
+          selectedHabitId,
         });
-        setAgentText(preview.preview);
-        void speakAgentReply(preview.preview);
-        return;
+      } else {
+        setPendingAction(null);
+        setSelectedHabitId(turn.preview.matchedHabitId);
       }
 
-      const output = await executePreview(preview);
-      updateAiHistoryStatus(historyItem.id, 'confirmed');
-      setAgentText(output);
-      appendChatMessage('agent', output);
-      void speakAgentReply(output);
-      setResultPopup({
-        type: 'success',
-        title: 'Done',
-        message: output,
-      });
+      if (source === 'voice') {
+        void speakAgentReply(turn.assistantText);
+      }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'The assistant could not complete that action.';
+      const message = error instanceof Error ? error.message : 'The assistant could not process that request.';
       setSpeechError(message);
-      setAgentText('I could not complete that.');
-      appendChatMessage('agent', `I could not complete that. ${message}`);
-      void speakAgentReply(`I could not complete that. ${message}`);
-      setResultPopup({
-        type: 'failure',
-        title: 'Action failed',
-        message,
-      });
+      addMessage('assistant', `I hit a problem: ${message}`);
+      setResultPopup({ type: 'failure', title: 'Action failed', message });
+      if (source === 'voice') {
+        void speakAgentReply(`I hit a problem. ${message}`);
+      }
     } finally {
       setProcessing(false);
     }
+  }
+
+  async function confirmPendingAction() {
+    if (!pendingAction?.preview.execution) {
+      return;
+    }
+
+    setProcessing(true);
+    try {
+      const resultMessage = await executePreview(pendingAction.preview);
+      updateAiHistoryStatus(pendingAction.sessionId, 'confirmed');
+      addMessage('assistant', resultMessage);
+      setResultPopup({ type: 'success', title: 'Done', message: resultMessage });
+      setPendingAction(null);
+      setSelectedHabitId(undefined);
+      void speakAgentReply(resultMessage);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not finish that action.';
+      updateAiHistoryStatus(pendingAction.sessionId, 'failed');
+      addMessage('assistant', `I could not finish that: ${message}`);
+      setResultPopup({ type: 'failure', title: 'Action failed', message });
+      setSpeechError(message);
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  function cancelPendingAction() {
+    if (pendingAction) {
+      updateAiHistoryStatus(pendingAction.sessionId, 'cancelled');
+      addMessage('assistant', 'Nothing changed. You can rephrase the request or tell me what to adjust.');
+    }
+    setPendingAction(null);
+    setSelectedHabitId(undefined);
+  }
+
+  async function resolveDisambiguation(habitId: string) {
+    if (!pendingAction) {
+      return;
+    }
+    setSelectedHabitId(habitId);
+    setPendingAction(null);
+    await handleUserTurn('Use that habit.', interactionMode === 'voice' ? 'voice' : 'chat');
   }
 
   async function submitChatDraft() {
@@ -550,129 +561,61 @@ export default function AssistantVoiceScreen() {
     if (!nextDraft || processing) {
       return;
     }
-
-    setTranscript(nextDraft);
-    transcriptRef.current = nextDraft;
-    setLiveWordIndex(Math.max(getTranscriptWords(nextDraft).length - 1, 0));
-    appendChatMessage('user', nextDraft);
     setChatDraft('');
-    await handleVoiceCommand(nextDraft);
+    await handleUserTurn(nextDraft, 'chat');
   }
 
-  function appendChatMessage(role: ChatMessage['role'], text: string) {
-    setChatMessages((messages) => [
-      ...messages,
-      {
-        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        role,
-        text,
-      },
-    ]);
-  }
-
-  function clearChat() {
+  function resetConversation() {
     Speech.stop();
-    if (transcriptClearTimeoutRef.current) {
-      clearTimeout(transcriptClearTimeoutRef.current);
-      transcriptClearTimeoutRef.current = null;
+    if (recognizing) {
+      stopListening();
     }
-    if (agentClearTimeoutRef.current) {
-      clearTimeout(agentClearTimeoutRef.current);
-      agentClearTimeoutRef.current = null;
-    }
-    transcriptOpacity.setValue(1);
-    agentOpacity.setValue(1);
-    setChatMessages([]);
-    setChatDraft('');
+    setMessages([]);
     setTranscript('');
-    transcriptRef.current = '';
-    setAgentText('');
     setSpeechError('');
     setResultPopup(null);
+    setPendingAction(null);
+    setSelectedHabitId(undefined);
+    setChatDraft('');
+    transcriptRef.current = '';
     processedTranscriptRef.current = '';
+    setSessionId(createSessionId());
   }
 
   async function executePreview(preview: AiCommandPreview) {
     const execution = preview.execution;
+    if (!execution) {
+      throw new Error('No action was ready to run.');
+    }
 
-    if (execution?.type === 'create') {
+    if (execution.type === 'create') {
       const habit = await saveHabit(execution.draft);
       return `Created ${habit.name}.`;
     }
 
-    if (execution?.type === 'modify') {
+    if (execution.type === 'modify') {
       const habit = await saveHabit(execution.draft, execution.habitId);
       return `Updated ${habit.name}.`;
     }
 
-    if (execution?.type === 'complete') {
+    if (execution.type === 'complete') {
       completeHabit(execution.habitId, execution.dateKey);
-      return `Marked the habit complete for ${friendlyResultDate(execution.dateKey)}.`;
+      return `Marked it complete for ${friendlyResultDate(execution.dateKey)}.`;
     }
 
-    if (execution?.type === 'skip') {
-      skipHabit(execution.habitId, execution.dateKey);
-      return `Marked the habit skipped for ${friendlyResultDate(execution.dateKey)}.`;
-    }
-
-    if (execution?.type === 'log') {
-      updateHabitValue(execution.habitId, execution.dateKey, execution.value, execution.note);
-      return `Logged ${execution.value} for ${friendlyResultDate(execution.dateKey)}.`;
-    }
-
-    if (execution?.type === 'note') {
-      updateHabitNote(execution.habitId, execution.dateKey, execution.note);
-      return `Saved the note for ${friendlyResultDate(execution.dateKey)}.`;
-    }
-
-    if (execution?.type === 'archive') {
-      archiveHabit(execution.habitId);
-      return 'Habit archived.';
-    }
-
-    if (execution?.type === 'restore') {
-      restoreHabit(execution.habitId);
-      return 'Habit restored.';
-    }
-
-    if (execution?.type === 'delete') {
+    if (execution.type === 'delete') {
       await deleteHabit(execution.habitId);
-      return 'Habit deleted.';
+      return 'Deleted the habit and its history.';
     }
 
-    if (preview.intent === 'summary' || preview.intent === 'recommendation') {
-      const activeHabits = habits.filter((habit) => !habit.archivedAt);
-      const prompt = [
-        `User command: ${transcriptRef.current}`,
-        `Interpreted preview: ${preview.preview}`,
-        `Active habits: ${JSON.stringify(activeHabits)}`,
-        `Habit logs: ${JSON.stringify(logs.slice(0, 150))}`,
-        'Write a short, supportive response for the habit app. Be specific, non-judgmental, and avoid medical, legal, or financial advice.',
-      ].join('\n\n');
-      return generateGeminiText(prompt, {
-        systemInstruction:
-          preview.intent === 'summary'
-            ? 'You are an in-app habit assistant. Summarize current habit progress in simple, encouraging language using only the provided local data.'
-            : 'You are an in-app habit coach. Recommend small, realistic habits, targets, and reminders using only the provided local data and the user request.',
-      });
-    }
-
-    throw new Error('No safe action was available for that command.');
+    throw new Error('That action is not part of this assistant flow yet.');
   }
 
   async function startListening() {
-    if (interactionMode !== 'voice') {
-      return;
-    }
-
     setSpeechError('');
-    setAgentText('');
     setResultPopup(null);
-    Speech.stop();
-
     try {
-      const available = ExpoSpeechRecognitionModule.isRecognitionAvailable();
-      if (!available) {
+      if (!ExpoSpeechRecognitionModule.isRecognitionAvailable()) {
         const message = 'Speech recognition is not available on this device.';
         setSpeechError(message);
         setResultPopup({ type: 'failure', title: 'Speech unavailable', message });
@@ -688,6 +631,7 @@ export default function AssistantVoiceScreen() {
         return;
       }
 
+      Speech.stop();
       ExpoSpeechRecognitionModule.start({
         lang: 'en-US',
         interimResults: true,
@@ -696,7 +640,6 @@ export default function AssistantVoiceScreen() {
         addsPunctuation: true,
       });
     } catch (error) {
-      setRecognizing(false);
       const message = error instanceof Error ? error.message : 'Could not start listening.';
       setSpeechError(message);
       setResultPopup({ type: 'failure', title: 'Listening failed', message });
@@ -712,9 +655,8 @@ export default function AssistantVoiceScreen() {
     }
   }
 
-  async function speakAgentReply(value: string) {
-    const text = value.trim();
-    if (!text) {
+  async function speakAgentReply(text: string) {
+    if (!text.trim()) {
       return;
     }
 
@@ -730,170 +672,98 @@ export default function AssistantVoiceScreen() {
         rate: 0.96,
       });
     } catch {
-      // Keep the UI responsive even if device TTS is unavailable.
+      // Keep visual feedback even if TTS is unavailable.
     }
   }
-}
 
-function getAgentWorkingText(preview: AiCommandPreview) {
-  if (preview.status !== 'previewed') {
-    return preview.preview;
-  }
-
-  switch (preview.intent) {
-    case 'create':
-      return 'Ok, creating.';
-    case 'modify':
-      return 'Ok, updating.';
-    case 'complete':
-      return 'Ok, marking it complete.';
-    case 'skip':
-      return 'Ok, marking it skipped.';
-    case 'log':
-      return 'Ok, logging it.';
-    case 'note':
-      return 'Ok, saving the note.';
-    case 'archive':
-      return 'Ok, archiving.';
-    case 'restore':
-      return 'Ok, restoring.';
-    case 'delete':
-      return 'Ok, deleting.';
-    case 'summary':
-      return 'Ok, summarizing.';
-    case 'recommendation':
-      return 'Ok, thinking through a suggestion.';
-    default:
-      return 'Ok, working on it.';
+  function addMessage(role: AssistantSessionMessage['role'], text: string) {
+    setMessages((current) => [
+      ...current,
+      {
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        role,
+        text,
+        createdAt: new Date().toISOString(),
+      },
+    ]);
   }
 }
 
-function friendlyResultDate(dateKey: string) {
-  const todayKey = new Date().toISOString().slice(0, 10);
-  return dateKey === todayKey ? 'today' : dateKey;
-}
-
-function VoiceOrb({
-  idlePulse,
-  speechPulse,
-  waveShift,
-  active,
-  scale,
+function ConfirmationCard({
+  preview,
+  onConfirm,
+  onCancel,
+  onSelectHabit,
+  busy,
 }: {
-  idlePulse: Animated.Value;
-  speechPulse: Animated.Value;
-  waveShift: Animated.Value;
-  active: boolean;
-  scale: Animated.AnimatedInterpolation<string | number>;
+  preview: AiCommandPreview;
+  onConfirm: () => void;
+  onCancel: () => void;
+  onSelectHabit: (habitId: string) => void;
+  busy: boolean;
 }) {
-  const activeScale = active
-    ? speechPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] })
-    : idlePulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.025] });
+  const destructive = preview.intent === 'delete';
 
   return (
-    <Animated.View style={[styles.orbField, { transform: [{ scale }] }]}>
-      <Animated.View
-        style={[
-          styles.dottedRing,
-          {
-            opacity: idlePulse.interpolate({ inputRange: [0, 1], outputRange: [0.42, 0.78] }),
-            transform: [{ scale: activeScale }],
-          },
-        ]}
-      />
-      <Animated.View
-        style={[
-          styles.outerGlow,
-          {
-            opacity: active ? 0.62 : 0.34,
-            transform: [{ scale: activeScale }],
-          },
-        ]}
-      />
-      <View style={styles.sideBarsLeft}>
-        {[6, 15, 27, 38, 30, 19, 8].map((height, index) => (
-          <Animated.View
-            key={`left-${height}-${index}`}
-            style={[
-              styles.sideBar,
-              {
-                height,
-                opacity: active ? 0.9 : 0.42,
-                transform: [
-                  {
-                    scaleY: active
-                      ? speechPulse.interpolate({ inputRange: [0, 1], outputRange: [0.62, 1.2 + index * 0.02] })
-                      : 1,
-                  },
-                ],
-              },
-            ]}
-          />
-        ))}
+    <View style={[styles.confirmCard, destructive && styles.confirmCardDanger]}>
+      <View style={styles.confirmHeader}>
+        <Text style={[styles.confirmEyebrow, destructive && styles.confirmEyebrowDanger]}>
+          {preview.status === 'needs-clarification' ? 'Need one more detail' : 'Review before changing anything'}
+        </Text>
+        <Text style={styles.confirmTitle}>{preview.intent === 'delete' ? 'Delete habit' : humanizeIntent(preview.intent)}</Text>
       </View>
-      <View style={styles.sideBarsRight}>
-        {[8, 19, 30, 38, 27, 15, 6].map((height, index) => (
-          <Animated.View
-            key={`right-${height}-${index}`}
-            style={[
-              styles.sideBar,
-              {
-                height,
-                opacity: active ? 0.95 : 0.48,
-                transform: [
-                  {
-                    scaleY: active
-                      ? speechPulse.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1.26 - index * 0.03] })
-                      : 1,
-                  },
-                ],
-              },
-            ]}
-          />
-        ))}
-      </View>
-      <View style={styles.orb}>
-        <View style={styles.orbTintA} />
-        <View style={styles.orbTintB} />
-        <View style={styles.orbTintC} />
-        <View style={styles.orbRingA} />
-        <View style={styles.orbRingB} />
-        <Animated.View
-          style={[
-            styles.waveBand,
-            {
-              transform: [
-                {
-                  translateX: waveShift.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [-18, 18],
-                  }),
-                },
-                {
-                  scaleY: active
-                    ? speechPulse.interpolate({ inputRange: [0, 1], outputRange: [0.88, 1.18] })
-                    : 1,
-                },
-              ],
-            },
-          ]}
-        >
-          <View style={styles.waveLobeLeft} />
-          <View style={styles.waveLobeRight} />
-          <View style={styles.waveThread} />
-        </Animated.View>
-      </View>
-    </Animated.View>
+
+      <Text style={styles.confirmBody}>{preview.preview}</Text>
+
+      {preview.disambiguationOptions?.length ? (
+        <View style={styles.optionWrap}>
+          {preview.disambiguationOptions.map((option) => (
+            <Pressable key={option.id} onPress={() => onSelectHabit(option.id)} style={styles.optionChip}>
+              <Text style={styles.optionChipText}>{option.name}</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+
+      {preview.execution ? (
+        <View style={styles.confirmActions}>
+          <Pressable onPress={onCancel} style={styles.cancelButton}>
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </Pressable>
+          <Pressable onPress={onConfirm} disabled={busy} style={[styles.confirmButton, destructive && styles.confirmDangerButton]}>
+            <Text style={styles.confirmButtonText}>{busy ? 'Working...' : destructive ? 'Delete' : 'Confirm'}</Text>
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
   );
 }
 
-function StateBadge({ label, active, highlighted }: { label: string; active: boolean; highlighted?: boolean }) {
+function ThreadMessage({ message }: { message: AssistantSessionMessage }) {
+  const isUser = message.role === 'user';
+  const isPreview = message.role === 'system-preview';
+
   return (
-    <View style={[styles.stateBadge, active && styles.stateBadgeActive]}>
-      <View style={[styles.stateIcon, highlighted && styles.stateIconBlue, active && styles.stateIconActive]}>
-        <View style={[styles.stateMiniWave, highlighted && styles.stateMiniWaveBlue]} />
+    <View style={[styles.threadRow, isUser ? styles.threadRowUser : styles.threadRowAssistant]}>
+      {!isUser ? <View style={[styles.messageDot, isPreview && styles.messageDotPreview]} /> : null}
+      <View
+        style={[
+          styles.threadBubble,
+          isUser ? styles.threadBubbleUser : isPreview ? styles.threadBubblePreview : styles.threadBubbleAssistant,
+        ]}
+      >
+        {!isUser ? <Text style={styles.threadLabel}>{isPreview ? 'Action preview' : 'Assistant'}</Text> : null}
+        <Text style={[styles.threadText, isPreview && styles.threadTextPreview]}>{message.text}</Text>
       </View>
-      <Text style={[styles.stateLabel, active && (highlighted ? styles.speakingLabel : styles.idleLabel)]}>{label}</Text>
+    </View>
+  );
+}
+
+function CompactMessage({ message }: { message: AssistantSessionMessage }) {
+  return (
+    <View style={[styles.compactMessage, message.role === 'user' ? styles.compactUser : styles.compactAssistant]}>
+      <Text style={styles.compactRole}>{message.role === 'user' ? 'You' : message.role === 'system-preview' ? 'Preview' : 'Assistant'}</Text>
+      <Text style={styles.compactText}>{message.text}</Text>
     </View>
   );
 }
@@ -917,8 +787,86 @@ function ModeButton({
       onPress={onPress}
       style={[styles.modeButton, active && styles.modeButtonActive]}
     >
-      <Ionicons name={icon} size={18} color={active ? '#16142a' : 'rgba(226,232,240,0.62)'} />
+      <Ionicons name={icon} size={18} color={active ? '#071220' : 'rgba(231,240,255,0.72)'} />
     </Pressable>
+  );
+}
+
+function StateBadge({
+  label,
+  active,
+  tone,
+}: {
+  label: string;
+  active: boolean;
+  tone: 'idle' | 'listening' | 'thinking' | 'confirm';
+}) {
+  return (
+    <View style={[styles.stateBadge, active && styles.stateBadgeActive]}>
+      <View
+        style={[
+          styles.stateIcon,
+          tone === 'listening' && styles.stateIconListening,
+          tone === 'thinking' && styles.stateIconThinking,
+          tone === 'confirm' && styles.stateIconConfirm,
+        ]}
+      />
+      <Text style={styles.stateLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function VoiceOrb({
+  idlePulse,
+  speechPulse,
+  waveShift,
+  active,
+  scale,
+}: {
+  idlePulse: Animated.Value;
+  speechPulse: Animated.Value;
+  waveShift: Animated.Value;
+  active: boolean;
+  scale: Animated.AnimatedInterpolation<string | number>;
+}) {
+  const activeScale = active
+    ? speechPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] })
+    : idlePulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.02] });
+
+  return (
+    <Animated.View style={[styles.orbField, { transform: [{ scale }] }]}>
+      <Animated.View style={[styles.dottedRing, { transform: [{ scale: activeScale }] }]} />
+      <Animated.View style={[styles.outerGlow, { opacity: active ? 0.74 : 0.38, transform: [{ scale: activeScale }] }]} />
+      <View style={styles.orb}>
+        <View style={styles.orbTintA} />
+        <View style={styles.orbTintB} />
+        <View style={styles.orbTintC} />
+        <Animated.View
+          style={[
+            styles.waveBand,
+            {
+              transform: [
+                {
+                  translateX: waveShift.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [-18, 18],
+                  }),
+                },
+                {
+                  scaleY: active
+                    ? speechPulse.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1.18] })
+                    : 1,
+                },
+              ],
+            },
+          ]}
+        >
+          <View style={styles.waveLobeLeft} />
+          <View style={styles.waveLobeRight} />
+          <View style={styles.waveThread} />
+        </Animated.View>
+      </View>
+    </Animated.View>
   );
 }
 
@@ -926,175 +874,160 @@ function getTranscriptWords(value: string) {
   return value.trim().split(/\s+/).filter(Boolean);
 }
 
+function createSessionId() {
+  return `assistant-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function friendlyResultDate(dateKey: string) {
+  const todayKey = new Date().toISOString().slice(0, 10);
+  return dateKey === todayKey ? 'today' : dateKey;
+}
+
+function humanizeIntent(intent: AiCommandPreview['intent']) {
+  switch (intent) {
+    case 'create':
+      return 'Create habit';
+    case 'modify':
+      return 'Update habit';
+    case 'complete':
+      return 'Complete habit';
+    case 'delete':
+      return 'Delete habit';
+    default:
+      return 'Assistant action';
+  }
+}
+
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#000a19',
+    backgroundColor: '#04101d',
   },
   screen: {
-    position: 'relative',
     flex: 1,
-    width: '100%',
-    maxWidth: '100%',
-    overflow: 'hidden',
-    backgroundColor: '#000a19',
-  },
-  chatScreen: {
-    backgroundColor: '#100d1d',
+    backgroundColor: '#04101d',
   },
   closeButton: {
     position: 'absolute',
-    left: 28,
-    zIndex: 10,
-    width: 52,
-    height: 52,
+    left: 18,
+    zIndex: 5,
+    width: 48,
+    height: 48,
     alignItems: 'center',
     justifyContent: 'center',
   },
   closeGlyph: {
-    color: 'rgba(226,232,240,0.78)',
-    fontSize: 58,
-    lineHeight: 58,
-    fontWeight: '200',
-  },
-  modeSwitch: {
-    width: 76,
-    minHeight: 40,
-    borderRadius: 20,
-    padding: 3,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(19,20,38,0.86)',
-    borderWidth: 1,
-    borderColor: 'rgba(148,163,184,0.12)',
+    color: 'rgba(226,236,248,0.82)',
+    fontSize: 48,
+    lineHeight: 48,
+    fontWeight: '300',
   },
   topRightActions: {
     position: 'absolute',
-    zIndex: 10,
+    zIndex: 5,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
   },
+  modeSwitch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 4,
+    borderRadius: 20,
+    backgroundColor: 'rgba(10,23,38,0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(98,130,159,0.22)',
+  },
   modeButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
   modeButtonActive: {
-    backgroundColor: '#d9c9ff',
-    shadowColor: '#9b7cff',
-    shadowOpacity: 0.8,
-    shadowRadius: 12,
+    backgroundColor: '#8ff0d9',
   },
   newChatButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(10,23,38,0.92)',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.04)',
   },
-  centerStage: {
-    flex: 1,
+  voiceContent: {
     alignItems: 'center',
-    justifyContent: 'flex-start',
-    paddingHorizontal: 22,
-    paddingTop: 94,
-    paddingBottom: 160,
-    gap: 26,
+    paddingHorizontal: 18,
+    gap: 18,
   },
   orbField: {
-    width: 286,
-    height: 286,
+    width: 280,
+    height: 280,
     alignItems: 'center',
     justifyContent: 'center',
   },
   dottedRing: {
     position: 'absolute',
-    width: 278,
-    height: 278,
-    borderRadius: 139,
+    width: 276,
+    height: 276,
+    borderRadius: 138,
+    borderColor: 'rgba(77,193,255,0.42)',
     borderWidth: 2,
     borderStyle: 'dotted',
-    borderColor: 'rgba(0,194,255,0.5)',
   },
   outerGlow: {
     position: 'absolute',
-    width: 238,
-    height: 238,
-    borderRadius: 119,
+    width: 236,
+    height: 236,
+    borderRadius: 118,
     borderWidth: 14,
-    borderColor: 'rgba(0,132,255,0.16)',
-    shadowColor: '#00b7ff',
+    borderColor: 'rgba(53,175,255,0.16)',
+    shadowColor: '#2ec8ff',
     shadowOpacity: 0.8,
-    shadowRadius: 32,
+    shadowRadius: 24,
   },
   orb: {
-    width: 198,
-    height: 198,
-    borderRadius: 99,
+    width: 194,
+    height: 194,
+    borderRadius: 97,
     overflow: 'hidden',
-    backgroundColor: '#021b45',
+    backgroundColor: '#09254d',
     borderWidth: 2,
-    borderColor: '#4adfff',
-    shadowColor: '#00b7ff',
-    shadowOpacity: 0.9,
-    shadowRadius: 30,
-    elevation: 18,
+    borderColor: '#5fe5ff',
   },
   orbTintA: {
     position: 'absolute',
-    left: -32,
-    top: -18,
-    width: 160,
-    height: 198,
-    borderRadius: 90,
-    backgroundColor: 'rgba(99,70,255,0.52)',
+    left: -22,
+    top: -12,
+    width: 132,
+    height: 174,
+    borderRadius: 80,
+    backgroundColor: 'rgba(63,214,255,0.36)',
   },
   orbTintB: {
     position: 'absolute',
-    right: -38,
-    bottom: -22,
-    width: 170,
-    height: 198,
-    borderRadius: 96,
-    backgroundColor: 'rgba(0,226,218,0.62)',
+    right: -22,
+    bottom: -18,
+    width: 150,
+    height: 176,
+    borderRadius: 90,
+    backgroundColor: 'rgba(43,143,255,0.48)',
   },
   orbTintC: {
     position: 'absolute',
-    left: 18,
-    bottom: -52,
-    width: 178,
-    height: 134,
-    borderRadius: 82,
-    backgroundColor: 'rgba(0,122,255,0.52)',
-  },
-  orbRingA: {
-    position: 'absolute',
-    width: 190,
-    height: 190,
-    borderRadius: 95,
-    borderWidth: 3,
-    borderColor: 'rgba(91,117,255,0.9)',
-  },
-  orbRingB: {
-    position: 'absolute',
-    top: 14,
-    left: 14,
-    width: 170,
-    height: 170,
-    borderRadius: 85,
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.64)',
+    left: 32,
+    bottom: -38,
+    width: 130,
+    height: 110,
+    borderRadius: 60,
+    backgroundColor: 'rgba(143,240,217,0.36)',
   },
   waveBand: {
     position: 'absolute',
     left: 16,
-    top: 68,
-    width: 166,
+    top: 66,
+    width: 162,
     height: 66,
   },
   waveLobeLeft: {
@@ -1102,28 +1035,24 @@ const styles = StyleSheet.create({
     left: 0,
     top: 16,
     width: 98,
-    height: 50,
+    height: 44,
     borderTopLeftRadius: 80,
     borderTopRightRadius: 80,
     borderBottomLeftRadius: 28,
-    borderBottomRightRadius: 64,
-    backgroundColor: 'rgba(111,67,255,0.64)',
-    borderTopWidth: 2,
-    borderColor: 'rgba(255,255,255,0.72)',
+    borderBottomRightRadius: 60,
+    backgroundColor: 'rgba(78,188,255,0.64)',
   },
   waveLobeRight: {
     position: 'absolute',
     right: 0,
-    top: 18,
-    width: 100,
-    height: 50,
+    top: 16,
+    width: 98,
+    height: 44,
     borderTopLeftRadius: 80,
     borderTopRightRadius: 80,
-    borderBottomLeftRadius: 64,
+    borderBottomLeftRadius: 60,
     borderBottomRightRadius: 28,
-    backgroundColor: 'rgba(0,224,235,0.68)',
-    borderTopWidth: 2,
-    borderColor: 'rgba(255,255,255,0.7)',
+    backgroundColor: 'rgba(143,240,217,0.74)',
   },
   waveThread: {
     position: 'absolute',
@@ -1131,416 +1060,437 @@ const styles = StyleSheet.create({
     right: 2,
     top: 34,
     height: 2,
-    backgroundColor: 'rgba(26,171,255,0.9)',
-    shadowColor: '#10d6ff',
-    shadowOpacity: 1,
-    shadowRadius: 10,
-  },
-  sideBarsLeft: {
-    position: 'absolute',
-    left: 2,
-    top: 128,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  sideBarsRight: {
-    position: 'absolute',
-    right: 2,
-    top: 128,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  sideBar: {
-    width: 4,
     borderRadius: 99,
-    backgroundColor: '#17dcff',
-    shadowColor: '#17dcff',
-    shadowOpacity: 1,
-    shadowRadius: 8,
+    backgroundColor: '#d7fbff',
   },
   stateRow: {
+    width: '100%',
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'center',
-    gap: 18,
-    marginTop: -6,
-  },
-  stateDivider: {
-    width: 1,
-    height: 44,
-    backgroundColor: 'rgba(148,163,184,0.26)',
+    gap: 10,
   },
   stateBadge: {
-    minWidth: 86,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     gap: 8,
-    opacity: 0.48,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    opacity: 0.6,
   },
   stateBadgeActive: {
     opacity: 1,
   },
   stateIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: 'rgba(148,163,184,0.58)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#89a9c7',
   },
-  stateIconBlue: {
-    borderStyle: 'solid',
-    borderColor: '#13d7ff',
+  stateIconListening: {
+    backgroundColor: '#2ed0ff',
   },
-  stateIconActive: {
-    shadowColor: '#148eff',
-    shadowOpacity: 1,
-    shadowRadius: 16,
+  stateIconThinking: {
+    backgroundColor: '#8ff0d9',
   },
-  stateMiniWave: {
-    width: 24,
-    height: 2,
-    borderRadius: 99,
-    backgroundColor: 'rgba(148,163,184,0.75)',
-  },
-  stateMiniWaveBlue: {
-    backgroundColor: '#13d7ff',
+  stateIconConfirm: {
+    backgroundColor: '#ffd166',
   },
   stateLabel: {
-    fontSize: 15,
+    color: '#e8f1fb',
+    fontSize: 13,
     fontWeight: '700',
-    color: 'rgba(148,163,184,0.76)',
   },
-  idleLabel: {
-    color: 'rgba(203,213,225,0.72)',
+  voiceStageCard: {
+    width: '100%',
+    borderRadius: 24,
+    padding: 18,
+    backgroundColor: '#0b1d31',
+    borderWidth: 1,
+    borderColor: 'rgba(113,154,188,0.18)',
+    gap: 12,
   },
-  speakingLabel: {
-    color: '#17d9ff',
-  },
-  transcriptWrap: {
-    minHeight: 86,
-    maxWidth: 340,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    rowGap: 8,
-    paddingHorizontal: 0,
-  },
-  dialogueStack: {
-    minHeight: 148,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 16,
-  },
-  voiceCopyBlock: {
-    maxWidth: 340,
-    alignItems: 'center',
-    gap: 10,
-  },
-  voiceLabel: {
-    color: 'rgba(148,163,184,0.82)',
+  sectionEyebrow: {
+    color: '#8ff0d9',
     fontSize: 12,
     fontWeight: '800',
     textTransform: 'uppercase',
-    letterSpacing: 0.4,
+    letterSpacing: 0.5,
   },
-  emptyTranscriptState: {
-    minHeight: 86,
-    maxWidth: 320,
-    alignItems: 'center',
-    justifyContent: 'center',
+  transcriptWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
-    paddingHorizontal: 16,
-  },
-  emptyTranscriptTitle: {
-    color: '#ffffff',
-    fontSize: 22,
-    lineHeight: 28,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  emptyTranscriptBody: {
-    color: 'rgba(148,163,184,0.78)',
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: '600',
-    textAlign: 'center',
+    rowGap: 10,
   },
   wordWrap: {
     minHeight: 38,
     justifyContent: 'center',
-    alignItems: 'center',
   },
   activeWordWrap: {
-    paddingHorizontal: 9,
+    paddingHorizontal: 10,
     borderRadius: 16,
-    backgroundColor: '#0f8fff',
-    shadowColor: '#15d6ff',
-    shadowOpacity: 0.9,
-    shadowRadius: 14,
+    backgroundColor: '#2ed0ff',
   },
   word: {
-    fontSize: 22,
-    lineHeight: 28,
+    fontSize: 21,
+    lineHeight: 27,
     fontWeight: '800',
   },
   pastWord: {
-    color: '#f8fbff',
+    color: '#f5fbff',
   },
   activeWord: {
-    color: '#ffffff',
+    color: '#04101d',
   },
-  futureWord: {
-    color: 'rgba(148,163,184,0.54)',
+  emptyVoiceState: {
+    gap: 8,
   },
-  wordWave: {
-    position: 'absolute',
-    bottom: -9,
-    width: 70,
-    height: 4,
-    borderRadius: 99,
-    backgroundColor: '#0f8fff',
-    shadowColor: '#18d5ff',
-    shadowOpacity: 1,
-    shadowRadius: 10,
+  emptyVoiceTitle: {
+    color: '#f3f8fd',
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: '800',
+  },
+  emptyVoiceBody: {
+    color: '#9bb4cb',
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '600',
   },
   errorText: {
-    marginTop: -20,
-    color: '#f87171',
+    color: '#ff9d9d',
     fontSize: 13,
     fontWeight: '700',
     textAlign: 'center',
   },
-  chatThread: {
-    flex: 1,
-    paddingHorizontal: 26,
-    paddingBottom: 120,
-    gap: 18,
-  },
-  chatUserRow: {
-    alignItems: 'flex-end',
-  },
-  chatAgentRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+  voiceHistoryBlock: {
+    width: '100%',
+    borderRadius: 24,
+    padding: 18,
+    backgroundColor: '#081827',
+    borderWidth: 1,
+    borderColor: 'rgba(113,154,188,0.16)',
     gap: 10,
   },
-  agentDot: {
-    width: 15,
-    height: 15,
-    borderRadius: 8,
-    backgroundColor: 'rgba(226,232,240,0.95)',
-    marginTop: 9,
+  compactMessage: {
+    borderRadius: 16,
+    padding: 12,
+    gap: 6,
   },
-  chatBubble: {
-    maxWidth: '84%',
-    borderRadius: 12,
-    paddingHorizontal: 15,
-    paddingVertical: 12,
+  compactUser: {
+    backgroundColor: 'rgba(46,208,255,0.12)',
   },
-  chatUserBubble: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
+  compactAssistant: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
   },
-  chatAgentBubble: {
-    backgroundColor: 'transparent',
-    paddingHorizontal: 0,
-    paddingVertical: 2,
+  compactRole: {
+    color: '#8ff0d9',
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
   },
-  chatBubbleText: {
-    color: '#f8fbff',
+  compactText: {
+    color: '#edf5ff',
     fontSize: 14,
     lineHeight: 20,
-    fontWeight: '700',
+    fontWeight: '600',
   },
-  chatEmptyState: {
+  emptyConversationText: {
+    color: '#93acc4',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  chatLayout: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 18,
+  },
+  chatThread: {
+    flex: 1,
+  },
+  threadRow: {
+    flexDirection: 'row',
     gap: 10,
   },
+  threadRowUser: {
+    justifyContent: 'flex-end',
+  },
+  threadRowAssistant: {
+    alignItems: 'flex-start',
+  },
+  messageDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginTop: 12,
+    backgroundColor: '#8ff0d9',
+  },
+  messageDotPreview: {
+    backgroundColor: '#ffd166',
+  },
+  threadBubble: {
+    maxWidth: '86%',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+  },
+  threadBubbleUser: {
+    backgroundColor: '#2ed0ff',
+  },
+  threadBubbleAssistant: {
+    backgroundColor: '#0b1d31',
+    borderWidth: 1,
+    borderColor: 'rgba(113,154,188,0.2)',
+  },
+  threadBubblePreview: {
+    backgroundColor: '#2b230b',
+    borderWidth: 1,
+    borderColor: 'rgba(255,209,102,0.28)',
+  },
+  threadLabel: {
+    color: '#8ff0d9',
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  threadText: {
+    color: '#edf5ff',
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '600',
+  },
+  threadTextPreview: {
+    color: '#fff4cc',
+  },
+  chatEmptyState: {
+    minHeight: 380,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingHorizontal: 18,
+  },
   chatEmptyTitle: {
-    color: '#ffffff',
-    fontSize: 20,
+    color: '#f3f8fd',
+    fontSize: 24,
+    lineHeight: 30,
     fontWeight: '900',
     textAlign: 'center',
   },
   chatEmptyBody: {
-    color: 'rgba(226,232,240,0.66)',
-    fontSize: 14,
-    lineHeight: 21,
-    textAlign: 'center',
+    color: '#9bb4cb',
+    fontSize: 15,
+    lineHeight: 22,
     fontWeight: '600',
+    textAlign: 'center',
   },
-  agentResponse: {
-    maxWidth: '92%',
-    borderRadius: 22,
+  confirmCard: {
+    borderRadius: 24,
+    padding: 18,
+    backgroundColor: '#102338',
     borderWidth: 1,
-    borderColor: 'rgba(23,217,255,0.28)',
-    backgroundColor: 'rgba(5,21,47,0.74)',
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    alignItems: 'center',
-    shadowColor: '#0f8fff',
-    shadowOpacity: 0.34,
-    shadowRadius: 16,
+    borderColor: 'rgba(113,154,188,0.2)',
+    gap: 14,
   },
-  agentLabel: {
-    color: 'rgba(148,163,184,0.82)',
+  confirmCardDanger: {
+    backgroundColor: '#2a1315',
+    borderColor: 'rgba(255,128,128,0.28)',
+  },
+  confirmHeader: {
+    gap: 4,
+  },
+  confirmEyebrow: {
+    color: '#8ff0d9',
     fontSize: 12,
     fontWeight: '800',
     textTransform: 'uppercase',
-    marginBottom: 4,
   },
-  agentText: {
-    color: '#ffffff',
-    fontSize: 19,
-    lineHeight: 25,
+  confirmEyebrowDanger: {
+    color: '#ffb4b4',
+  },
+  confirmTitle: {
+    color: '#f4f8fd',
+    fontSize: 20,
+    lineHeight: 26,
     fontWeight: '800',
-    textAlign: 'center',
+  },
+  confirmBody: {
+    color: '#dbe8f4',
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '600',
+  },
+  optionWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  optionChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: 'rgba(46,208,255,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(46,208,255,0.2)',
+  },
+  optionChipText: {
+    color: '#dff8ff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  cancelButton: {
+    flex: 1,
+    minHeight: 50,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  cancelButtonText: {
+    color: '#edf5ff',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  confirmButton: {
+    flex: 1,
+    minHeight: 50,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#8ff0d9',
+  },
+  confirmDangerButton: {
+    backgroundColor: '#ff8b8b',
+  },
+  confirmButtonText: {
+    color: '#05101d',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  typingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 4,
+  },
+  typingText: {
+    color: '#9bb4cb',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  chatComposer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    backgroundColor: 'rgba(4,16,29,0.96)',
+  },
+  chatInput: {
+    flex: 1,
+    minHeight: 54,
+    maxHeight: 132,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: '#0b1d31',
+    color: '#edf5ff',
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '600',
+  },
+  chatSendButton: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#8ff0d9',
+  },
+  chatSendDisabled: {
+    opacity: 0.5,
   },
   micButton: {
     position: 'absolute',
     alignSelf: 'center',
-    width: 122,
-    height: 122,
-    borderRadius: 61,
-    borderWidth: 2,
-    borderColor: '#0f8fff',
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: '#8ff0d9',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(2,12,29,0.82)',
-    shadowColor: '#0f8fff',
-    shadowOpacity: 0.8,
-    shadowRadius: 28,
-    elevation: 18,
+    shadowColor: '#8ff0d9',
+    shadowOpacity: 0.42,
+    shadowRadius: 18,
   },
   micGlow: {
-    position: 'absolute',
-    width: 92,
-    height: 92,
-    borderRadius: 46,
-    backgroundColor: 'rgba(15,143,255,0.08)',
-  },
-  stopGlyph: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: '#1687ff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  chatComposer: {
-    position: 'absolute',
-    left: 22,
-    right: 22,
-    minHeight: 68,
-    borderRadius: 34,
-    paddingLeft: 22,
-    paddingRight: 8,
-    paddingVertical: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+    ...StyleSheet.absoluteFill,
+    borderRadius: 38,
     borderWidth: 1,
-    borderColor: 'rgba(226,232,240,0.26)',
-    backgroundColor: 'rgba(9,8,17,0.84)',
-    shadowColor: '#8b5cf6',
-    shadowOpacity: 0.28,
-    shadowRadius: 20,
-  },
-  chatInput: {
-    flex: 1,
-    color: '#ffffff',
-    fontSize: 16,
-    lineHeight: 21,
-    fontWeight: '700',
-    paddingVertical: 10,
-  },
-  chatSendButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#0f8fff',
-  },
-  chatSendDisabled: {
-    opacity: 0.45,
+    borderColor: 'rgba(255,255,255,0.38)',
   },
   popupBackdrop: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 28,
-    backgroundColor: 'rgba(0,5,15,0.42)',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    paddingHorizontal: 24,
   },
   resultPopup: {
     width: '100%',
-    maxWidth: 330,
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: 'rgba(34,197,94,0.36)',
-    backgroundColor: 'rgba(3,18,42,0.96)',
-    paddingHorizontal: 22,
-    paddingVertical: 22,
+    maxWidth: 340,
+    borderRadius: 24,
+    padding: 22,
+    backgroundColor: '#0d2237',
     alignItems: 'center',
-    shadowColor: '#22c55e',
-    shadowOpacity: 0.42,
-    shadowRadius: 28,
+    gap: 10,
   },
   failurePopup: {
-    borderColor: 'rgba(248,113,113,0.42)',
-    shadowColor: '#ef4444',
+    backgroundColor: '#2a1315',
   },
   popupIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#16c47f',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#22c55e',
-    marginBottom: 12,
   },
   failureIcon: {
-    backgroundColor: '#ef4444',
+    backgroundColor: '#ff8b8b',
   },
   popupTitle: {
-    color: '#ffffff',
-    fontSize: 22,
-    fontWeight: '900',
-    textAlign: 'center',
+    color: '#f3f8fd',
+    fontSize: 20,
+    fontWeight: '800',
   },
   popupMessage: {
-    color: 'rgba(226,232,240,0.82)',
+    color: '#dbe8f4',
     fontSize: 15,
     lineHeight: 22,
     textAlign: 'center',
-    marginTop: 8,
+    fontWeight: '600',
   },
   popupButton: {
-    minWidth: 112,
-    minHeight: 44,
-    borderRadius: 22,
+    marginTop: 4,
+    minWidth: 110,
+    minHeight: 46,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0f8fff',
-    marginTop: 18,
-    paddingHorizontal: 18,
+    backgroundColor: '#8ff0d9',
   },
   popupButtonText: {
-    color: '#ffffff',
+    color: '#05101d',
     fontSize: 15,
     fontWeight: '900',
   },
