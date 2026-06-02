@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Tabs, router } from 'expo-router';
+import { Tabs } from 'expo-router';
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { NewHabitSheet } from '@/src/components/new-habit-sheet';
 import { useThemeTokens } from '@/src/theme/colors';
 
 type TabIconName = React.ComponentProps<typeof Ionicons>['name'];
@@ -38,6 +40,7 @@ function FloatingTabBar({ state, descriptors, navigation }: any) {
   const tokens = useThemeTokens();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+  const [newHabitOpen, setNewHabitOpen] = useState(false);
   const bottomOffset = Math.max(insets.bottom, 26);
   const maxRailWidth = 420;
   const addButtonSize = 60;
@@ -60,6 +63,7 @@ function FloatingTabBar({ state, descriptors, navigation }: any) {
 
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+      <NewHabitSheet visible={newHabitOpen} onClose={() => setNewHabitOpen(false)} />
       <View style={[styles.wrapper, { paddingBottom: bottomOffset }]}>
         <View
           style={[
@@ -155,7 +159,7 @@ function FloatingTabBar({ state, descriptors, navigation }: any) {
               shadowColor: '#000000',
             },
           ]}
-          onPress={() => router.push('/habit/new')}
+          onPress={() => setNewHabitOpen(true)}
           >
           <Ionicons
             name="add"

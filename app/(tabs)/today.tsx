@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { addDays, format, parseISO, startOfWeek } from 'date-fns';
 import { useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { getProfileAvatar } from '@/src/constants/profile';
@@ -28,7 +28,6 @@ export default function TodayScreen() {
   const todayHabits = useTodayHabits();
   const logs = useAppStore((state) => state.logs);
   const habits = useAppStore((state) => state.habits);
-  const seedRandomCompletions = useAppStore((state) => state.seedTodayRandomCompletionTest);
   const archiveHabit = useAppStore((state) => state.archiveHabit);
   const deleteHabit = useAppStore((state) => state.deleteHabit);
   const session = useAppStore((state) => state.session);
@@ -88,7 +87,7 @@ export default function TodayScreen() {
           </View>
 
           <View style={[styles.avatarWrap, { shadowColor: profileAvatar.glow }]}>
-            <Image source={{ uri: profileAvatar.imageUri }} style={styles.avatarImage} />
+            <Image source={profileAvatar.image} style={styles.avatarImage} />
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Open settings"
@@ -261,27 +260,6 @@ export default function TodayScreen() {
 
         <View style={styles.sectionRow}>
           <Text style={[styles.sectionTitle, { color: tokens.text }]}>Today's Habits</Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Seed five random completed habit logs from the last two weeks"
-            onPress={() => {
-              const summary = seedRandomCompletions();
-              Alert.alert(
-                'Test data seeded',
-                `Added ${summary.seededCount} completed habits in the last two weeks.\n${summary.currentWeekCount} of them landed in the current analytics week.`,
-              );
-            }}
-            style={[
-              styles.testButton,
-              {
-                backgroundColor: isLight ? '#ffffff' : '#09111d',
-                borderColor: isLight ? '#d9e6f3' : 'rgba(96,165,250,0.12)',
-              },
-            ]}
-          >
-            <Ionicons name="flash" size={14} color={isLight ? '#2563eb' : '#4ade80'} />
-            <Text style={[styles.testButtonText, { color: isLight ? '#1d4ed8' : '#e2e8f0' }]}>Test</Text>
-          </Pressable>
         </View>
 
         {visibleHabits.length ? (
@@ -621,19 +599,6 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 30,
-    fontWeight: '800',
-  },
-  testButton: {
-    minHeight: 34,
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  testButtonText: {
-    fontSize: 13,
     fontWeight: '800',
   },
 });

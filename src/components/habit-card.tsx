@@ -57,17 +57,16 @@ export function HabitCard({ habit, dateKey, onOpen, onEdit, onArchive, onDelete 
             <Ionicons name={habit.icon as React.ComponentProps<typeof Ionicons>['name']} size={22} color={habit.color} />
           </View>
           <View style={styles.titleCopy}>
-            <Text style={[styles.title, { color: tokens.text }]}>{habit.name}</Text>
-            <Text style={[styles.meta, { color: habit.color }]}>{habit.category}</Text>
+            <Text numberOfLines={2} style={[styles.title, { color: tokens.text }]}>
+              {habit.name}
+            </Text>
+            <Text numberOfLines={1} style={[styles.meta, { color: habit.color }]}>
+              {habit.category}
+            </Text>
           </View>
         </View>
 
-        <View style={styles.trailingActions}>
-          <View style={styles.trailingMeta}>
-            <Text style={[styles.progressTop, { color: log?.status === 'completed' ? habit.color : tokens.text }]}>{progressText}</Text>
-            <Text style={[styles.progressBottom, { color: tokens.textMuted }]}>{habit.unit ?? (habit.kind === 'yesNo' ? 'done' : 'today')}</Text>
-          </View>
-
+        <View style={styles.actionButtons}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={log?.status === 'completed' ? `Undo ${habit.name}` : `Complete ${habit.name}`}
@@ -123,6 +122,22 @@ export function HabitCard({ habit, dateKey, onOpen, onEdit, onArchive, onDelete 
               </View>
             ) : null}
           </View>
+        </View>
+      </View>
+
+      <View style={[styles.progressRow, { backgroundColor: tokens.surfaceMuted }]}>
+        <View style={styles.progressCopy}>
+          <Text numberOfLines={1} style={[styles.progressTop, { color: log?.status === 'completed' ? habit.color : tokens.text }]}>
+            {progressText}
+          </Text>
+          <Text numberOfLines={1} style={[styles.progressBottom, { color: tokens.textMuted }]}>
+            {habit.kind === 'yesNo' ? 'Completion status' : `Target ${target} ${habit.unit ?? ''}`.trim()}
+          </Text>
+        </View>
+        <View style={[styles.progressBadge, { backgroundColor: `${habit.color}18`, borderColor: `${habit.color}30` }]}>
+          <Text numberOfLines={1} style={[styles.progressBadgeText, { color: habit.color }]}>
+            {habit.kind === 'duration' ? 'Duration' : habit.kind === 'count' ? 'Count' : 'Today'}
+          </Text>
         </View>
       </View>
 
@@ -187,12 +202,14 @@ const styles = StyleSheet.create({
   },
   titleWrap: {
     flex: 1,
+    minWidth: 0,
     flexDirection: 'row',
     gap: 12,
     alignItems: 'center',
   },
   titleCopy: {
     flex: 1,
+    minWidth: 0,
   },
   iconChip: {
     width: 56,
@@ -210,13 +227,24 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontWeight: '600',
   },
-  trailingActions: {
+  actionButtons: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    flexShrink: 0,
   },
-  trailingMeta: {
-    alignItems: 'flex-end',
+  progressRow: {
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  progressCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   progressTop: {
     fontSize: 16,
@@ -225,6 +253,19 @@ const styles = StyleSheet.create({
   progressBottom: {
     fontSize: 12,
     marginTop: 2,
+  },
+  progressBadge: {
+    minHeight: 30,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  progressBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
   },
   doneButton: {
     width: 44,

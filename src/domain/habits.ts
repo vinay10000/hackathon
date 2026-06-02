@@ -1,20 +1,20 @@
 import {
-  addDays,
-  eachDayOfInterval,
-  endOfMonth,
-  endOfWeek,
-  format,
-  isAfter,
-  isBefore,
-  parseISO,
-  startOfMonth,
-  startOfWeek,
+    addDays,
+    eachDayOfInterval,
+    endOfMonth,
+    endOfWeek,
+    format,
+    isAfter,
+    isBefore,
+    parseISO,
+    startOfMonth,
+    startOfWeek,
 } from 'date-fns';
 
 import { Habit, HabitFormDraft, HabitLog, HabitLogStatus, HabitSchedule } from '@/src/types/habits';
 
 export const HABIT_COLORS = ['#2563eb', '#14b8a6', '#f97316', '#ef4444', '#8b5cf6', '#f59e0b'];
-export const HABIT_ICONS = ['sparkles', 'flame', 'book', 'drop', 'moon', 'heart', 'leaf', 'bolt'];
+export const HABIT_ICONS = ['star', 'flame', 'book', 'water', 'moon', 'heart', 'leaf', 'flash'];
 
 export function createId(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
@@ -189,8 +189,8 @@ export function getTodayProgress(habits: Habit[], logs: HabitLog[], dateKey: str
 }
 
 export function buildMonthGrid(currentMonth: Date) {
-  const start = startOfWeek(startOfMonth(currentMonth), { weekStartsOn: 0 });
-  const end = endOfWeek(endOfMonth(currentMonth), { weekStartsOn: 0 });
+  const start = startOfWeek(startOfMonth(currentMonth), { weekStartsOn: 1 });
+  const end = endOfWeek(endOfMonth(currentMonth), { weekStartsOn: 1 });
   return eachDayOfInterval({ start, end });
 }
 
@@ -207,13 +207,18 @@ export function getLogStatusForHabitOnDate(habit: Habit, logs: HabitLog[], dateK
 }
 
 export function calculateStreak(habit: Habit, logs: HabitLog[]) {
-  const scheduledDays = eachDayOfInterval({ start: parseISO(habit.startDate), end: new Date() })
-    .map((date) => format(date, 'yyyy-MM-dd'))
-    .filter((dateKey) => isHabitScheduledForDate(habit, dateKey, logs));
+  const habitLogs = logs.filter((log) => log.habitId === habit.id);
+  const earliestLogDate = habitLogs.reduce<string | undefined>(
+    (earliest, log) => (!earliest || log.date < earliest ? log.date : earliest),
+    undefined,
+  );
+  const streakStartDate = earliestLogDate && earliestLogDate < habit.startDate ? parseISO(earliestLogDate) : parseISO(habit.startDate);
+  const streakEndDate = habit.endDate && isBefore(parseISO(habit.endDate), new Date()) ? parseISO(habit.endDate) : new Date();
+  const streakDays = eachDayOfInterval({ start: streakStartDate, end: streakEndDate }).map((date) => format(date, 'yyyy-MM-dd'));
 
   let running = 0;
   let best = 0;
-  for (const dateKey of scheduledDays) {
+  for (const dateKey of streakDays) {
     const log = getHabitLogForDate(logs, habit.id, dateKey);
     if (log?.status === 'completed' || log?.status === 'partial') {
       running += 1;
@@ -224,8 +229,8 @@ export function calculateStreak(habit: Habit, logs: HabitLog[]) {
   }
 
   let current = 0;
-  for (let index = scheduledDays.length - 1; index >= 0; index -= 1) {
-    const log = getHabitLogForDate(logs, habit.id, scheduledDays[index]);
+  for (let index = streakDays.length - 1; index >= 0; index -= 1) {
+    const log = getHabitLogForDate(logs, habit.id, streakDays[index]);
     if (log?.status === 'completed' || log?.status === 'partial') {
       current += 1;
     } else {
@@ -237,7 +242,13 @@ export function calculateStreak(habit: Habit, logs: HabitLog[]) {
 }
 
 export function calculateCompletionRate(habit: Habit, logs: HabitLog[]) {
-  const scheduledDays = eachDayOfInterval({ start: parseISO(habit.startDate), end: new Date() })
+  const habitLogs = logs.filter((log) => log.habitId === habit.id);
+  const earliestLogDate = habitLogs.reduce<string | undefined>(
+    (earliest, log) => (!earliest || log.date < earliest ? log.date : earliest),
+    undefined,
+  );
+  const completionStartDate = earliestLogDate && earliestLogDate < habit.startDate ? parseISO(earliestLogDate) : parseISO(habit.startDate);
+  const scheduledDays = eachDayOfInterval({ start: completionStartDate, end: new Date() })
     .map((date) => format(date, 'yyyy-MM-dd'))
     .filter((dateKey) => isHabitScheduledForDate(habit, dateKey, logs));
 

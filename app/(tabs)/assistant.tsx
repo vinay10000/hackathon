@@ -23,6 +23,7 @@ import {
   AiCommandPreview,
   resolveAssistantConversationTurn,
 } from '@/src/lib/ai-assistant';
+import { cleanupTranscriptWithWhisper, getWhisperModelName, hasWhisperCleanupConfigured } from '@/src/lib/whisper';
 import { useAppStore } from '@/src/store/app-store';
 import { AssistantSessionMessage } from '@/src/types/habits';
 
@@ -51,15 +52,22 @@ export default function AssistantScreen() {
   const updateAiHistoryStatus = useAppStore((state) => state.updateAiHistoryStatus);
   const setMicrophonePermission = useAppStore((state) => state.setMicrophonePermission);
   const saveHabit = useAppStore((state) => state.saveHabit);
+  const archiveHabit = useAppStore((state) => state.archiveHabit);
+  const restoreHabit = useAppStore((state) => state.restoreHabit);
   const completeHabit = useAppStore((state) => state.completeHabit);
+  const skipHabit = useAppStore((state) => state.skipHabit);
+  const updateHabitValue = useAppStore((state) => state.updateHabitValue);
+  const updateHabitNote = useAppStore((state) => state.updateHabitNote);
   const deleteHabit = useAppStore((state) => state.deleteHabit);
 
   const [interactionMode, setInteractionMode] = useState<InteractionMode>('voice');
   const [messages, setMessages] = useState<AssistantSessionMessage[]>([]);
   const [chatDraft, setChatDraft] = useState('');
   const [transcript, setTranscript] = useState('');
+  const [finalTranscript, setFinalTranscript] = useState('');
   const [recognizing, setRecognizing] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [cleaningTranscript, setCleaningTranscript] = useState(false);
   const [speechError, setSpeechError] = useState('');
   const [resultPopup, setResultPopup] = useState<ResultPopup | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAssistantAction | null>(null);
@@ -69,6 +77,8 @@ export default function AssistantScreen() {
 
   const transcriptRef = useRef('');
   const processedTranscriptRef = useRef('');
+  const audioRecordingUriRef = useRef<string | null>(null);
+  const voiceTurnInFlightRef = useRef(false);
   const scrollViewRef = useRef<ScrollView | null>(null);
   const idlePulse = useRef(new Animated.Value(0)).current;
   const speechPulse = useRef(new Animated.Value(0)).current;
@@ -144,20 +154,30 @@ export default function AssistantScreen() {
   useSpeechRecognitionEvent('start', () => {
     setRecognizing(true);
     setProcessing(false);
+    setCleaningTranscript(false);
     setSpeechError('');
     setResultPopup(null);
     setTranscript('');
+    setFinalTranscript('');
     transcriptRef.current = '';
     processedTranscriptRef.current = '';
+    audioRecordingUriRef.current = null;
     setLiveWordIndex(0);
+  });
+
+  useSpeechRecognitionEvent('audiostart', (event) => {
+    audioRecordingUriRef.current = event.uri ?? null;
+  });
+
+  useSpeechRecognitionEvent('audioend', (event) => {
+    audioRecordingUriRef.current = event.uri ?? audioRecordingUriRef.current;
   });
 
   useSpeechRecognitionEvent('end', () => {
     setRecognizing(false);
     const finalTranscript = transcriptRef.current.trim();
-    if (finalTranscript && finalTranscript !== processedTranscriptRef.current) {
-      processedTranscriptRef.current = finalTranscript;
-      void handleUserTurn(finalTranscript, 'voice');
+    if (finalTranscript && finalTranscript !== processedTranscriptRef.current && !voiceTurnInFlightRef.current) {
+      void finalizeVoiceTurn(finalTranscript);
     }
   });
 
@@ -178,6 +198,8 @@ export default function AssistantScreen() {
 
   useSpeechRecognitionEvent('error', (event) => {
     setRecognizing(false);
+    setCleaningTranscript(false);
+    voiceTurnInFlightRef.current = false;
     const message = event.message || 'Could not hear that clearly.';
     setSpeechError(message);
     setResultPopup({
@@ -263,10 +285,11 @@ export default function AssistantScreen() {
 
               <View style={styles.stateRow}>
                 <StateBadge label="Listening" active={recognizing} tone="listening" />
-                <StateBadge label="Thinking" active={processing && !recognizing} tone="thinking" />
+                <StateBadge label="Cleaning" active={cleaningTranscript} tone="thinking" />
+                <StateBadge label="Thinking" active={processing && !recognizing && !cleaningTranscript} tone="thinking" />
                 <StateBadge
                   label={pendingAction ? 'Confirming' : 'Ready'}
-                  active={!recognizing && !processing}
+                  active={!recognizing && !processing && !cleaningTranscript}
                   tone={pendingAction ? 'confirm' : 'idle'}
                 />
               </View>
@@ -306,6 +329,22 @@ export default function AssistantScreen() {
                         : 'Speak naturally. I can coach you, ask follow-up questions, and prepare habit changes for confirmation.'}
                     </Text>
                   </View>
+                )}
+              </View>
+
+              <View style={styles.voiceStageCard}>
+                <Text style={styles.sectionEyebrow}>Final transcript</Text>
+                {cleaningTranscript ? (
+                  <View style={styles.finalTranscriptState}>
+                    <ActivityIndicator color="#8ff0d9" />
+                    <Text style={styles.finalTranscriptBody}>{`Cleaning the final transcript with ${getWhisperModelName()} before I respond.`}</Text>
+                  </View>
+                ) : finalTranscript ? (
+                  <Text style={styles.finalTranscriptText}>{finalTranscript}</Text>
+                ) : (
+                  <Text style={styles.finalTranscriptHint}>
+                    Live words appear above while you speak. After you stop, I clean the final transcript before responding.
+                  </Text>
                 )}
               </View>
 
@@ -572,6 +611,8 @@ export default function AssistantScreen() {
     }
     setMessages([]);
     setTranscript('');
+    setFinalTranscript('');
+    setCleaningTranscript(false);
     setSpeechError('');
     setResultPopup(null);
     setPendingAction(null);
@@ -579,6 +620,8 @@ export default function AssistantScreen() {
     setChatDraft('');
     transcriptRef.current = '';
     processedTranscriptRef.current = '';
+    audioRecordingUriRef.current = null;
+    voiceTurnInFlightRef.current = false;
     setSessionId(createSessionId());
   }
 
@@ -603,6 +646,31 @@ export default function AssistantScreen() {
       return `Marked it complete for ${friendlyResultDate(execution.dateKey)}.`;
     }
 
+    if (execution.type === 'skip') {
+      skipHabit(execution.habitId, execution.dateKey);
+      return `Marked it skipped for ${friendlyResultDate(execution.dateKey)}.`;
+    }
+
+    if (execution.type === 'log') {
+      updateHabitValue(execution.habitId, execution.dateKey, execution.value, execution.note);
+      return `Logged ${execution.value} for ${friendlyResultDate(execution.dateKey)}.`;
+    }
+
+    if (execution.type === 'note') {
+      updateHabitNote(execution.habitId, execution.dateKey, execution.note);
+      return `Saved that note for ${friendlyResultDate(execution.dateKey)}.`;
+    }
+
+    if (execution.type === 'archive') {
+      archiveHabit(execution.habitId);
+      return 'Archived the habit.';
+    }
+
+    if (execution.type === 'restore') {
+      restoreHabit(execution.habitId);
+      return 'Restored the habit.';
+    }
+
     if (execution.type === 'delete') {
       await deleteHabit(execution.habitId);
       return 'Deleted the habit and its history.';
@@ -614,6 +682,8 @@ export default function AssistantScreen() {
   async function startListening() {
     setSpeechError('');
     setResultPopup(null);
+    setFinalTranscript('');
+    setCleaningTranscript(false);
     try {
       if (!ExpoSpeechRecognitionModule.isRecognitionAvailable()) {
         const message = 'Speech recognition is not available on this device.';
@@ -638,6 +708,11 @@ export default function AssistantScreen() {
         continuous: false,
         contextualStrings: habits.map((habit) => habit.name),
         addsPunctuation: true,
+        recordingOptions: ExpoSpeechRecognitionModule.supportsRecording()
+          ? {
+              persist: true,
+            }
+          : undefined,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not start listening.';
@@ -686,6 +761,41 @@ export default function AssistantScreen() {
         createdAt: new Date().toISOString(),
       },
     ]);
+  }
+
+  async function finalizeVoiceTurn(liveTranscript: string) {
+    voiceTurnInFlightRef.current = true;
+    setCleaningTranscript(false);
+    setFinalTranscript(liveTranscript);
+
+    let cleanedTranscript = liveTranscript;
+    const audioUri = audioRecordingUriRef.current;
+
+    if (audioUri && hasWhisperCleanupConfigured()) {
+      try {
+        setCleaningTranscript(true);
+        const whisperResult = await cleanupTranscriptWithWhisper(audioUri, {
+          language: 'en',
+          prompt: habits.map((habit) => habit.name).slice(0, 24).join(', '),
+        });
+        cleanedTranscript = whisperResult.text.trim() || liveTranscript;
+        setFinalTranscript(cleanedTranscript);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Whisper cleanup failed.';
+        setSpeechError(message);
+        setFinalTranscript(liveTranscript);
+      } finally {
+        setCleaningTranscript(false);
+      }
+    }
+
+    if (cleanedTranscript && cleanedTranscript !== processedTranscriptRef.current) {
+      processedTranscriptRef.current = cleanedTranscript;
+      await handleUserTurn(cleanedTranscript, 'voice');
+    }
+
+    voiceTurnInFlightRef.current = false;
+    audioRecordingUriRef.current = null;
   }
 }
 
@@ -1157,6 +1267,30 @@ const styles = StyleSheet.create({
     color: '#9bb4cb',
     fontSize: 15,
     lineHeight: 22,
+    fontWeight: '600',
+  },
+  finalTranscriptState: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  finalTranscriptBody: {
+    flex: 1,
+    color: '#dbe8f4',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  finalTranscriptText: {
+    color: '#f4fbff',
+    fontSize: 16,
+    lineHeight: 24,
+    fontWeight: '700',
+  },
+  finalTranscriptHint: {
+    color: '#93acc4',
+    fontSize: 14,
+    lineHeight: 20,
     fontWeight: '600',
   },
   errorText: {

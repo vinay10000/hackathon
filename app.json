@@ -51,7 +51,7 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-screen-amoled-v1.png",
-          "resizeMode": "contain",
+          "resizeMode": "cover",
           "backgroundColor": "#000000"
         }
       ],

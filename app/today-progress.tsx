@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { addDays, eachWeekOfInterval, format, isSameDay, startOfWeek, subDays } from 'date-fns';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -160,6 +160,7 @@ function HabitProgressCardInner({
   tokens: ReturnType<typeof useThemeTokens>;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const heatmapScrollRef = useRef<ScrollView | null>(null);
   return (
     <Pressable style={[styles.habitCard, { backgroundColor: tokens.surface, borderColor: tokens.border }]} onPress={onOpen}>
       <View style={styles.habitHeaderRow}>
@@ -225,14 +226,6 @@ function HabitProgressCardInner({
         </View>
       </View>
 
-      <View style={styles.heatmapHeader}>
-        {heatmap.monthLabels.map((label) => (
-          <Text key={label.key} style={[styles.monthLabel, { color: tokens.textMuted }]}>
-            {label.text}
-          </Text>
-        ))}
-      </View>
-
       <View style={styles.heatmapWrap}>
         <View style={styles.weekdayRail}>
           {['M', 'W', 'F', 'S'].map((label) => (
@@ -241,24 +234,51 @@ function HabitProgressCardInner({
             </Text>
           ))}
         </View>
-        <View style={styles.heatmapGrid}>
-          {heatmap.weeks.map((week) => (
-            <View key={week.key} style={styles.heatmapColumn}>
-              {week.days.map((day) => (
-                <View
-                  key={day.key}
+        <ScrollView
+          ref={heatmapScrollRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.heatmapScrollContent}
+          onContentSizeChange={() => heatmapScrollRef.current?.scrollToEnd({ animated: false })}
+        >
+          <View style={styles.heatmapScrollableContent}>
+            <View style={styles.heatmapHeader}>
+              {heatmap.monthLabels.map((label) => (
+                <Text
+                  key={label.key}
                   style={[
-                    styles.heatmapCell,
+                    styles.monthLabel,
                     {
-                      backgroundColor: day.tone,
-                      borderColor: day.isToday ? '#ffffff' : 'transparent',
+                      color: tokens.textMuted,
+                      left: label.offset,
                     },
                   ]}
-                />
+                >
+                  {label.text}
+                </Text>
               ))}
             </View>
-          ))}
-        </View>
+
+            <View style={styles.heatmapGrid}>
+              {heatmap.weeks.map((week) => (
+                <View key={week.key} style={styles.heatmapColumn}>
+                  {week.days.map((day) => (
+                    <View
+                      key={day.key}
+                      style={[
+                        styles.heatmapCell,
+                        {
+                          backgroundColor: day.tone,
+                          borderColor: day.isToday ? '#ffffff' : 'transparent',
+                        },
+                      ]}
+                    />
+                  ))}
+                </View>
+              ))}
+            </View>
+          </View>
+        </ScrollView>
       </View>
     </Pressable>
   );
@@ -286,6 +306,7 @@ function PopupAction({
 function buildHabitHeatmap(habit: Habit, logs: HabitLog[]) {
   const today = new Date();
   const start = subDays(today, 139);
+  const heatmapColumnStride = 20;
   const weeks = eachWeekOfInterval({ start, end: today }, { weekStartsOn: 1 }).map((weekStart) => {
     const days = Array.from({ length: 7 }, (_, index) => {
       const date = addDays(weekStart, index);
@@ -316,7 +337,11 @@ function buildHabitHeatmap(habit: Habit, logs: HabitLog[]) {
 
   const monthLabels = weeks
     .filter((week, index) => index === 0 || format(week.start, 'MMM') !== format(weeks[index - 1].start, 'MMM'))
-    .map((week) => ({ key: week.key, text: format(week.start, "MMM ''yy") }));
+    .map((week) => ({
+      key: week.key,
+      text: format(week.start, "MMM ''yy"),
+      offset: weeks.findIndex((candidate) => candidate.key === week.key) * heatmapColumnStride,
+    }));
 
   let currentStreak = 0;
   for (let index = weeks.length - 1; index >= 0; index -= 1) {
@@ -400,9 +425,24 @@ const styles = StyleSheet.create({
   },
   popupAction: { minHeight: 34, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 8 },
   popupLabel: { fontSize: 13, fontWeight: '700' },
-  heatmapHeader: { flexDirection: 'row', gap: 12, paddingLeft: 34 },
-  monthLabel: { fontSize: 11, fontWeight: '600' },
-  heatmapWrap: { flexDirection: 'row', gap: 10 },
+  heatmapScrollContent: {
+    paddingRight: 6,
+  },
+  heatmapScrollableContent: {
+    gap: 10,
+  },
+  heatmapHeader: {
+    position: 'relative',
+    minWidth: '100%',
+    height: 16,
+  },
+  monthLabel: {
+    position: 'absolute',
+    top: 0,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  heatmapWrap: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
   weekdayRail: { paddingTop: 2, gap: 18 },
   weekdayRailLabel: { fontSize: 12, fontWeight: '600' },
   heatmapGrid: { flex: 1, flexDirection: 'row', gap: 4 },

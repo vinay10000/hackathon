@@ -9,6 +9,7 @@ import { signOutOfFirebase } from '@/src/lib/auth';
 import { canScheduleNotifications, requestNotificationAccess } from '@/src/lib/notifications';
 import { buildLocalDataExport, buildPrivacySafeTelemetry } from '@/src/lib/privacy-export';
 import { useAppStore } from '@/src/store/app-store';
+import { ThemeTokens, useThemeTokens } from '@/src/theme/colors';
 import { ThemePreference } from '@/src/types/habits';
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
@@ -23,6 +24,8 @@ const THEME_OPTIONS: { label: string; value: ThemePreference; icon: IconName }[]
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+  const tokens = useThemeTokens();
+  const settingsPalette = getSettingsPalette(tokens);
   const preferences = useAppStore((state) => state.preferences);
   const session = useAppStore((state) => state.session);
   const premium = useAppStore((state) => state.premium);
@@ -54,15 +57,15 @@ export default function SettingsScreen() {
   }
 
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: tokens.background }]}>
       <LinearGradient
-        colors={['#010814', '#041225', '#020812', '#020711']}
+        colors={settingsPalette.backgroundGradient}
         locations={[0, 0.36, 0.72, 1]}
         style={StyleSheet.absoluteFill}
       />
-      <View style={styles.topAbyss} />
-      <View style={styles.planetOuter} />
-      <View style={styles.planetGlow} />
+      <View style={[styles.topAbyss, { backgroundColor: settingsPalette.topAbyss }]} />
+      <View style={[styles.planetOuter, { borderColor: settingsPalette.orbit, shadowColor: settingsPalette.orbitGlow }]} />
+      <View style={[styles.planetGlow, { backgroundColor: settingsPalette.orbitGlow, shadowColor: settingsPalette.orbitGlow }]} />
       <View style={styles.stars}>
         {Array.from({ length: 18 }, (_, index) => (
           <View
@@ -72,7 +75,8 @@ export default function SettingsScreen() {
               {
                 left: `${8 + ((index * 17) % 86)}%`,
                 top: 54 + ((index * 23) % 174),
-                opacity: 0.14 + (index % 5) * 0.13,
+                backgroundColor: settingsPalette.star,
+                opacity: settingsPalette.starOpacity + (index % 5) * 0.05,
                 transform: [{ scale: index % 4 === 0 ? 1.45 : 1 }],
               },
             ]}
@@ -86,16 +90,20 @@ export default function SettingsScreen() {
           contentContainerStyle={[styles.content, { paddingBottom: bottomPadding, width: contentWidth }]}
         >
           <View style={styles.header}>
-            <Text style={styles.title}>Settings</Text>
-            <Pressable accessibilityLabel="Search settings" accessibilityRole="button" style={styles.searchButton}>
-              <Ionicons name="search" size={34} color="#ffffff" />
+            <Text style={[styles.title, { color: tokens.text }]}>Settings</Text>
+            <Pressable
+              accessibilityLabel="Search settings"
+              accessibilityRole="button"
+              style={[styles.searchButton, { backgroundColor: settingsPalette.control, borderColor: tokens.border }]}
+            >
+              <Ionicons name="search" size={22} color={tokens.text} />
             </Pressable>
           </View>
 
           <GlassCard compact>
             <View style={styles.profileTop}>
               <View style={[styles.profileAvatarWrap, { shadowColor: selectedAvatar.glow }]}>
-                <Image source={{ uri: selectedAvatar.imageUri }} style={styles.profileAvatar} />
+                <Image source={selectedAvatar.image} style={styles.profileAvatar} />
               </View>
               <View style={styles.profileCopy}>
                 <Text style={styles.profileEyebrow}>Profile</Text>
@@ -103,8 +111,15 @@ export default function SettingsScreen() {
                   value={session.displayName ?? 'Friend'}
                   onChangeText={(displayName) => setProfile({ displayName })}
                   placeholder="Your name"
-                  placeholderTextColor="rgba(194,207,232,0.58)"
-                  style={styles.nameInput}
+                  placeholderTextColor={tokens.textMuted}
+                  style={[
+                    styles.nameInput,
+                    {
+                      color: tokens.text,
+                      backgroundColor: settingsPalette.input,
+                      borderColor: tokens.border,
+                    },
+                  ]}
                 />
               </View>
             </View>
@@ -117,9 +132,13 @@ export default function SettingsScreen() {
                     accessibilityRole="button"
                     accessibilityState={{ selected }}
                     onPress={() => setProfile({ profileAvatarId: avatar.id })}
-                    style={[styles.avatarChoice, selected && { borderColor: '#2f98ff', shadowColor: avatar.glow }]}
+                      style={[
+                        styles.avatarChoice,
+                        { backgroundColor: settingsPalette.input, borderColor: tokens.border },
+                        selected && { borderColor: tokens.primary, shadowColor: avatar.glow },
+                      ]}
                   >
-                    <Image source={{ uri: avatar.imageUri }} style={styles.avatarChoiceImage} />
+                    <Image source={avatar.image} style={styles.avatarChoiceImage} />
                   </Pressable>
                 );
               })}
@@ -128,33 +147,39 @@ export default function SettingsScreen() {
 
           <GlassCard>
             <CardHeading icon="color-palette-outline" iconColor="#2f8fff" title="Theme" />
-            <View style={styles.themeTray}>
+            <View style={[styles.themeTray, { backgroundColor: settingsPalette.input, borderColor: tokens.border }]}>
               {THEME_OPTIONS.map((option, index) => {
                 const selected = preferences.theme === option.value;
                 return (
                   <View key={option.value} style={styles.themeSlot}>
-                    {index > 0 ? <View style={styles.themeDivider} /> : null}
+                    {index > 0 ? <View style={[styles.themeDivider, { backgroundColor: tokens.border }]} /> : null}
                     <Pressable
                       accessibilityRole="button"
                       accessibilityState={{ selected }}
                       onPress={() => setTheme(option.value)}
-                      style={[styles.themeOption, selected && styles.themeOptionSelected]}
+                      style={[
+                        styles.themeOption,
+                        selected && styles.themeOptionSelected,
+                        selected && { backgroundColor: settingsPalette.selectedSoft, borderColor: tokens.primary, shadowColor: tokens.primary },
+                      ]}
                     >
                       {option.value === 'amoled' ? (
                         <DottedRing active={selected} />
                       ) : (
-                        <Ionicons name={option.icon} size={36} color={selected ? '#3698ff' : '#aebbe0'} />
+                        <Ionicons name={option.icon} size={24} color={selected ? tokens.primary : tokens.textMuted} />
                       )}
-                      <Text style={[styles.themeLabel, selected && styles.themeLabelActive]}>{option.label}</Text>
-                      <View style={[styles.radio, selected && styles.radioActive]}>{selected ? <View style={styles.radioDot} /> : null}</View>
+                      <Text style={[styles.themeLabel, { color: tokens.textMuted }, selected && { color: tokens.primary }]}>{option.label}</Text>
+                      <View style={[styles.radio, { borderColor: tokens.border }, selected && { borderColor: tokens.primary }]}>
+                        {selected ? <View style={[styles.radioDot, { backgroundColor: tokens.primary }]} /> : null}
+                      </View>
                     </Pressable>
                   </View>
                 );
               })}
             </View>
             <View style={styles.focusLine}>
-              <Ionicons name="sparkles-outline" size={22} color="#2f8fff" />
-              <Text style={styles.focusText}>Designed for focus. Easy on your eyes.</Text>
+              <Ionicons name="sparkles-outline" size={16} color={tokens.primary} />
+              <Text style={[styles.focusText, { color: tokens.textMuted }]}>Designed for focus. Easy on your eyes.</Text>
             </View>
           </GlassCard>
 
@@ -180,7 +205,7 @@ export default function SettingsScreen() {
           <GlassCard>
             <View style={styles.topRow}>
               <CardHeading icon="hardware-chip-outline" iconColor="#25d7df" title="AI controls and privacy" subtitle="Manage HabitAI’s intelligence" />
-              <Ionicons name="chevron-forward" size={26} color="#9fafcf" />
+              <Ionicons name="chevron-forward" size={18} color="#9fafcf" />
             </View>
             <View style={styles.metricGrid}>
               <MetricTile icon="shield-checkmark-outline" iconColor="#2bbef0" label="Data access" value={preferences.telemetryEnabled ? 'Enabled' : 'Limited'} onPress={() => setTelemetryEnabled(!preferences.telemetryEnabled)} />
@@ -190,10 +215,10 @@ export default function SettingsScreen() {
           </GlassCard>
 
           <LinearGradient
-            colors={['rgba(251,191,36,0.16)', 'rgba(11,18,30,0.94)', 'rgba(255,183,18,0.08)']}
+            colors={settingsPalette.premiumGradient}
             start={{ x: 0, y: 0.4 }}
             end={{ x: 1, y: 0.6 }}
-            style={styles.premiumCard}
+            style={[styles.premiumCard, { borderColor: tokens.warning }]}
           >
             <View style={styles.goldSparkA} />
             <View style={styles.goldSparkB} />
@@ -202,19 +227,19 @@ export default function SettingsScreen() {
               <Pressable
                 accessibilityRole="button"
                 onPress={() => setPremiumEntitlement(premium.entitlement === 'premium' ? 'free' : 'premium')}
-                style={styles.activePill}
+                style={[styles.activePill, { borderColor: tokens.warning, backgroundColor: `${tokens.warning}16` }]}
               >
-                <Ionicons name="sparkles" size={18} color="#ffce3a" />
-                <Text style={styles.activePillText}>{premium.entitlement === 'premium' ? 'Active' : 'Upgrade'}</Text>
+                <Ionicons name="sparkles" size={18} color={tokens.warning} />
+                <Text style={[styles.activePillText, { color: tokens.warning }]}>{premium.entitlement === 'premium' ? 'Active' : 'Upgrade'}</Text>
               </Pressable>
-              <Ionicons name="chevron-forward" size={28} color="#ffce3a" />
+              <Ionicons name="chevron-forward" size={18} color={tokens.warning} />
             </View>
           </LinearGradient>
 
           <GlassCard>
             <View style={styles.topRow}>
               <CardHeading icon="documents-outline" iconColor="#2f8fff" title="Help, legal, and data" subtitle="Support, terms, and data options" />
-              <Ionicons name="chevron-forward" size={26} color="#9fafcf" />
+              <Ionicons name="chevron-forward" size={18} color="#9fafcf" />
             </View>
             <ListRow icon="help-circle-outline" label="Help center" />
             <ListRow icon="document-text-outline" label="Terms of service" />
@@ -259,7 +284,14 @@ export default function SettingsScreen() {
 }
 
 function GlassCard({ children, compact = false }: { children: React.ReactNode; compact?: boolean }) {
-  return <View style={[styles.card, compact && styles.compactCard]}>{children}</View>;
+  const tokens = useThemeTokens();
+  const settingsPalette = getSettingsPalette(tokens);
+
+  return (
+    <View style={[styles.card, { backgroundColor: settingsPalette.card, borderColor: tokens.border }, compact && styles.compactCard]}>
+      {children}
+    </View>
+  );
 }
 
 function CardHeading({
@@ -273,39 +305,49 @@ function CardHeading({
   title: string;
   subtitle?: string;
 }) {
+  const tokens = useThemeTokens();
+
   return (
     <View style={styles.heading}>
-      <Ionicons name={icon} size={34} color={iconColor} />
+      <Ionicons name={icon} size={22} color={iconColor} />
       <View style={styles.headingCopy}>
-        <Text style={styles.cardTitle}>{title}</Text>
-        {subtitle ? <Text style={styles.cardSubtitle}>{subtitle}</Text> : null}
+        <Text style={[styles.cardTitle, { color: tokens.text }]}>{title}</Text>
+        {subtitle ? <Text style={[styles.cardSubtitle, { color: tokens.textMuted }]}>{subtitle}</Text> : null}
       </View>
     </View>
   );
 }
 
 function DottedRing({ active }: { active: boolean }) {
+  const tokens = useThemeTokens();
   const colors = ['#55d7ff', '#32e0c4', '#f8dd63', '#ff8aba', '#d974ff', '#7ba4ff', '#55d7ff', '#32e0c4'];
 
   return (
-    <View style={[styles.dottedRing, active && styles.dottedRingActive]}>
+    <View style={[styles.dottedRing, active && styles.dottedRingActive, active && { shadowColor: tokens.primary }]}>
       {colors.map((color, index) => (
-        <View key={`${color}-${index}`} style={[styles.ringDot, { backgroundColor: color, transform: [{ rotate: `${index * 45}deg` }, { translateY: -17 }] }]} />
+        <View key={`${color}-${index}`} style={[styles.ringDot, { backgroundColor: color, transform: [{ rotate: `${index * 45}deg` }, { translateY: -11 }] }]} />
       ))}
     </View>
   );
 }
 
 function InsetRow({ icon, label, value, onPress }: { icon: IconName; label: string; value: string; onPress: () => void }) {
+  const tokens = useThemeTokens();
+  const settingsPalette = getSettingsPalette(tokens);
+
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={styles.insetRow}>
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={[styles.insetRow, { backgroundColor: settingsPalette.input, borderColor: tokens.border }]}
+    >
       <View style={styles.rowLeft}>
-        <Ionicons name={icon} size={25} color="#96a5c8" />
-        <Text style={styles.rowLabel}>{label}</Text>
+        <Ionicons name={icon} size={18} color={tokens.textMuted} />
+        <Text style={[styles.rowLabel, { color: tokens.text }]}>{label}</Text>
       </View>
       <View style={styles.rowRight}>
-        <Text style={styles.rowValue}>{value}</Text>
-        <Ionicons name="chevron-forward" size={25} color="#94a5c7" />
+        <Text style={[styles.rowValue, { color: tokens.primary }]}>{value}</Text>
+        <Ionicons name="chevron-forward" size={17} color={tokens.textMuted} />
       </View>
     </Pressable>
   );
@@ -324,35 +366,99 @@ function MetricTile({
   value: string;
   onPress: () => void;
 }) {
+  const tokens = useThemeTokens();
+  const settingsPalette = getSettingsPalette(tokens);
+
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={styles.metricTile}>
-      <Ionicons name={icon} size={30} color={iconColor} />
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={[styles.metricTile, { backgroundColor: settingsPalette.input, borderColor: tokens.border }]}
+    >
+      <Ionicons name={icon} size={21} color={iconColor} />
       <View>
-        <Text style={styles.metricLabel}>{label}</Text>
-        <Text style={[styles.metricValue, value === 'Limited' && styles.metricValueLimited]}>{value}</Text>
+        <Text style={[styles.metricLabel, { color: tokens.textMuted }]}>{label}</Text>
+        <Text style={[styles.metricValue, { color: value === 'Limited' ? tokens.teal : tokens.success }]}>{value}</Text>
       </View>
     </Pressable>
   );
 }
 
 function ListRow({ icon, label, destructive = false, onPress }: { icon: IconName; label: string; destructive?: boolean; onPress?: () => void }) {
+  const tokens = useThemeTokens();
+
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={styles.listRow}>
+    <Pressable accessibilityRole="button" onPress={onPress} style={[styles.listRow, { borderTopColor: tokens.border }]}>
       <View style={styles.rowLeft}>
-        <Ionicons name={icon} size={29} color={destructive ? '#ff514f' : '#8e9bbd'} />
-        <Text style={[styles.listLabel, destructive && styles.listLabelDestructive]}>{label}</Text>
+        <Ionicons name={icon} size={19} color={destructive ? tokens.danger : tokens.textMuted} />
+        <Text style={[styles.listLabel, { color: destructive ? tokens.danger : tokens.text }, destructive && styles.listLabelDestructive]}>{label}</Text>
       </View>
-      <Ionicons name="chevron-forward" size={25} color={destructive ? '#ff514f' : '#96a5c8'} />
+      <Ionicons name="chevron-forward" size={17} color={destructive ? tokens.danger : tokens.textMuted} />
     </Pressable>
   );
 }
 
 function UtilityAction({ label, onPress }: { label: string; onPress: () => void }) {
+  const tokens = useThemeTokens();
+  const settingsPalette = getSettingsPalette(tokens);
+
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={styles.utilityButton}>
-      <Text style={styles.utilityText}>{label}</Text>
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={[styles.utilityButton, { backgroundColor: settingsPalette.input, borderColor: tokens.border }]}
+    >
+      <Text style={[styles.utilityText, { color: tokens.textMuted }]}>{label}</Text>
     </Pressable>
   );
+}
+
+function getSettingsPalette(tokens: ThemeTokens) {
+  if (tokens.mode === 'light') {
+    return {
+      backgroundGradient: ['#f7fbff', '#eef5ff', '#f4f7fb', '#edf3fb'] as const,
+      topAbyss: 'rgba(216,229,246,0.48)',
+      orbit: 'rgba(37,99,235,0.22)',
+      orbitGlow: 'rgba(37,99,235,0.28)',
+      star: '#2563eb',
+      starOpacity: 0.08,
+      card: 'rgba(255,255,255,0.88)',
+      control: 'rgba(255,255,255,0.82)',
+      input: 'rgba(245,249,255,0.92)',
+      selectedSoft: 'rgba(37,99,235,0.10)',
+      premiumGradient: ['rgba(255,255,255,0.92)', 'rgba(255,251,235,0.96)', 'rgba(254,243,199,0.72)'] as const,
+    };
+  }
+
+  if (tokens.mode === 'amoled') {
+    return {
+      backgroundGradient: ['#000000', '#030303', '#000000', '#000000'] as const,
+      topAbyss: 'rgba(0,0,0,0.64)',
+      orbit: 'rgba(94,234,212,0.28)',
+      orbitGlow: 'rgba(94,234,212,0.34)',
+      star: '#5eead4',
+      starOpacity: 0.1,
+      card: 'rgba(5,5,5,0.92)',
+      control: 'rgba(16,16,16,0.9)',
+      input: 'rgba(16,16,16,0.86)',
+      selectedSoft: 'rgba(94,234,212,0.12)',
+      premiumGradient: ['rgba(250,204,21,0.11)', 'rgba(5,5,5,0.95)', 'rgba(250,204,21,0.07)'] as const,
+    };
+  }
+
+  return {
+    backgroundGradient: ['#010814', '#041225', '#020812', '#020711'] as const,
+    topAbyss: 'rgba(0,3,10,0.38)',
+    orbit: 'rgba(42,143,255,0.72)',
+    orbitGlow: 'rgba(45,146,255,0.9)',
+    star: '#2f8fff',
+    starOpacity: 0.14,
+    card: 'rgba(6,17,34,0.84)',
+    control: 'rgba(13,26,48,0.9)',
+    input: 'rgba(7,20,40,0.72)',
+    selectedSoft: 'rgba(38,111,219,0.18)',
+    premiumGradient: ['rgba(251,191,36,0.16)', 'rgba(11,18,30,0.94)', 'rgba(255,183,18,0.08)'] as const,
+  };
 }
 
 const styles = StyleSheet.create({
@@ -365,8 +471,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   content: {
-    paddingTop: 20,
-    gap: 14,
+    paddingTop: 12,
+    gap: 10,
   },
   topAbyss: {
     position: 'absolute',
@@ -417,23 +523,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#2f8fff',
   },
   header: {
-    minHeight: 92,
+    minHeight: 58,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 18,
+    gap: 12,
   },
   title: {
     color: '#ffffff',
-    fontSize: 62,
-    lineHeight: 70,
+    fontSize: 38,
+    lineHeight: 44,
     fontWeight: '800',
-    letterSpacing: -2.3,
+    letterSpacing: -1.2,
   },
   searchButton: {
-    width: 82,
-    height: 82,
-    borderRadius: 41,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(13,26,48,0.9)',
@@ -441,74 +547,74 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(114,137,173,0.36)',
     shadowColor: '#000000',
     shadowOpacity: 0.32,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 12 },
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
   },
   card: {
-    borderRadius: 28,
-    padding: 22,
-    gap: 18,
+    borderRadius: 20,
+    padding: 16,
+    gap: 12,
     backgroundColor: 'rgba(6,17,34,0.84)',
     borderWidth: 1.2,
     borderColor: 'rgba(92,118,155,0.36)',
     shadowColor: '#001329',
     shadowOpacity: 0.36,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 16 },
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
   },
   compactCard: {
-    paddingVertical: 18,
+    paddingVertical: 14,
   },
   profileTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    gap: 12,
   },
   profileAvatarWrap: {
-    width: 66,
-    height: 66,
-    borderRadius: 33,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     borderWidth: 2,
     borderColor: '#2f98ff',
     padding: 4,
     shadowOpacity: 0.55,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
   },
   profileAvatar: {
     width: '100%',
     height: '100%',
-    borderRadius: 28,
+    borderRadius: 22,
   },
   profileCopy: {
     flex: 1,
-    gap: 7,
+    gap: 5,
   },
   profileEyebrow: {
     color: '#92a2c4',
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
   },
   nameInput: {
-    minHeight: 42,
-    borderRadius: 18,
-    paddingHorizontal: 14,
+    minHeight: 36,
+    borderRadius: 14,
+    paddingHorizontal: 12,
     color: '#ffffff',
-    fontSize: 22,
-    lineHeight: 26,
+    fontSize: 17,
+    lineHeight: 21,
     fontWeight: '700',
     backgroundColor: 'rgba(7,20,40,0.72)',
     borderWidth: 1,
     borderColor: 'rgba(96,125,169,0.32)',
   },
   avatarStrip: {
-    gap: 11,
+    gap: 8,
     paddingRight: 10,
   },
   avatarChoice: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     padding: 3,
     borderWidth: 1.5,
     borderColor: 'rgba(109,132,170,0.38)',
@@ -520,12 +626,12 @@ const styles = StyleSheet.create({
   avatarChoiceImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 20,
+    borderRadius: 16,
   },
   heading: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    gap: 10,
     flexShrink: 1,
   },
   headingCopy: {
@@ -534,26 +640,26 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     color: '#ffffff',
-    fontSize: 27,
-    lineHeight: 32,
-    fontWeight: '800',
-    letterSpacing: -0.45,
+    fontSize: 19,
+    lineHeight: 23,
+    fontWeight: '700',
+    letterSpacing: -0.2,
   },
   cardSubtitle: {
     color: '#c0c9de',
-    fontSize: 20,
-    lineHeight: 24,
+    fontSize: 13,
+    lineHeight: 17,
     fontWeight: '400',
   },
   themeTray: {
-    minHeight: 228,
-    borderRadius: 24,
+    minHeight: 132,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: 'rgba(82,107,145,0.28)',
     backgroundColor: 'rgba(8,19,36,0.82)',
     flexDirection: 'row',
-    paddingHorizontal: 8,
-    paddingVertical: 7,
+    paddingHorizontal: 5,
+    paddingVertical: 5,
     overflow: 'hidden',
   },
   themeSlot: {
@@ -564,8 +670,8 @@ const styles = StyleSheet.create({
   themeDivider: {
     position: 'absolute',
     left: 0,
-    top: 12,
-    bottom: 12,
+    top: 8,
+    bottom: 8,
     width: 1,
     backgroundColor: 'rgba(58,78,110,0.33)',
   },
@@ -573,9 +679,9 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 18,
-    borderRadius: 27,
-    borderWidth: 1.5,
+    gap: 9,
+    borderRadius: 17,
+    borderWidth: 1,
     borderColor: 'transparent',
     marginHorizontal: 4,
   },
@@ -589,8 +695,8 @@ const styles = StyleSheet.create({
   },
   themeLabel: {
     color: '#bec8e5',
-    fontSize: 24,
-    lineHeight: 28,
+    fontSize: 13,
+    lineHeight: 16,
     fontWeight: '400',
     letterSpacing: -0.2,
   },
@@ -598,10 +704,10 @@ const styles = StyleSheet.create({
     color: '#3698ff',
   },
   radio: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 3,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
     borderColor: 'rgba(142,157,190,0.55)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -613,14 +719,14 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
   },
   radioDot: {
-    width: 15,
-    height: 15,
-    borderRadius: 7.5,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: '#3698ff',
   },
   dottedRing: {
-    width: 38,
-    height: 38,
+    width: 26,
+    height: 26,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -629,35 +735,35 @@ const styles = StyleSheet.create({
   },
   ringDot: {
     position: 'absolute',
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
   },
   focusLine: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
     paddingLeft: 4,
   },
   focusText: {
     color: '#c2cbe0',
-    fontSize: 19,
-    lineHeight: 24,
+    fontSize: 13,
+    lineHeight: 17,
   },
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 14,
+    gap: 10,
   },
   insetRow: {
-    minHeight: 70,
-    borderRadius: 25,
-    paddingHorizontal: 19,
+    minHeight: 48,
+    borderRadius: 16,
+    paddingHorizontal: 13,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 14,
+    gap: 10,
     borderWidth: 1,
     borderColor: 'rgba(82,107,145,0.28)',
     backgroundColor: 'rgba(8,19,36,0.72)',
@@ -665,7 +771,7 @@ const styles = StyleSheet.create({
   rowLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 15,
+    gap: 10,
     flexShrink: 1,
   },
   rowRight: {
@@ -675,55 +781,55 @@ const styles = StyleSheet.create({
   },
   rowLabel: {
     color: '#ffffff',
-    fontSize: 21,
+    fontSize: 15,
     fontWeight: '500',
   },
   rowValue: {
     color: '#2f95ff',
-    fontSize: 21,
+    fontSize: 14,
     fontWeight: '500',
   },
   metricGrid: {
     flexDirection: 'row',
-    gap: 9,
+    gap: 7,
   },
   metricTile: {
     flex: 1,
-    minHeight: 92,
-    borderRadius: 18,
+    minHeight: 70,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: 'rgba(82,107,145,0.28)',
     backgroundColor: 'rgba(8,19,36,0.72)',
-    paddingHorizontal: 13,
-    paddingVertical: 13,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
     justifyContent: 'space-between',
   },
   metricLabel: {
     color: '#c6cee0',
-    fontSize: 15,
-    lineHeight: 18,
+    fontSize: 11,
+    lineHeight: 14,
     fontWeight: '400',
   },
   metricValue: {
     color: '#23f0a5',
-    fontSize: 17,
-    lineHeight: 21,
+    fontSize: 13,
+    lineHeight: 16,
     fontWeight: '500',
   },
   metricValueLimited: {
     color: '#24e9df',
   },
   premiumCard: {
-    minHeight: 120,
-    borderRadius: 24,
+    minHeight: 84,
+    borderRadius: 18,
     borderWidth: 1.2,
     borderColor: 'rgba(255,183,18,0.68)',
-    paddingHorizontal: 22,
-    paddingVertical: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
+    gap: 8,
     overflow: 'hidden',
     shadowColor: '#ffb712',
     shadowOpacity: 0.24,
@@ -751,37 +857,37 @@ const styles = StyleSheet.create({
   premiumRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
   },
   activePill: {
-    minHeight: 48,
-    borderRadius: 24,
-    paddingHorizontal: 22,
-    borderWidth: 1.5,
+    minHeight: 34,
+    borderRadius: 17,
+    paddingHorizontal: 12,
+    borderWidth: 1,
     borderColor: '#ffce1f',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 9,
+    gap: 6,
     backgroundColor: 'rgba(255,193,31,0.09)',
   },
   activePillText: {
     color: '#ffdf60',
-    fontSize: 21,
+    fontSize: 13,
     fontWeight: '500',
   },
   listRow: {
-    minHeight: 50,
+    minHeight: 42,
     borderTopWidth: 1,
     borderTopColor: 'rgba(105,126,160,0.25)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 16,
+    gap: 10,
   },
   listLabel: {
     color: '#e7edf9',
-    fontSize: 20,
-    lineHeight: 24,
+    fontSize: 15,
+    lineHeight: 19,
     fontWeight: '400',
   },
   listLabelDestructive: {
@@ -791,13 +897,13 @@ const styles = StyleSheet.create({
   utilityRail: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 8,
     justifyContent: 'center',
   },
   utilityButton: {
-    minHeight: 42,
-    borderRadius: 21,
-    paddingHorizontal: 16,
+    minHeight: 34,
+    borderRadius: 17,
+    paddingHorizontal: 13,
     justifyContent: 'center',
     backgroundColor: 'rgba(8,19,36,0.84)',
     borderWidth: 1,

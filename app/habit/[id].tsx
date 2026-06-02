@@ -1,12 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
-import { addMonths, format, isAfter, isSameMonth, isToday, parseISO, startOfMonth, subMonths } from 'date-fns';
+import { addMonths, eachDayOfInterval, format, isAfter, isSameMonth, isToday, parseISO, startOfDay, startOfMonth, subDays, subMonths } from 'date-fns';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/src/components/empty-state';
-import { buildMonthGrid, formatScheduleLabel, getLogStatusForHabitOnDate, isHabitScheduledForDate } from '@/src/domain/habits';
+import { buildMonthGrid, formatScheduleLabel, getHabitLogForDate, getLogStatusForHabitOnDate, isHabitScheduledForDate } from '@/src/domain/habits';
 import { useAppStore, useHabitInsights } from '@/src/store/app-store';
 import { ThemeTokens, useThemeTokens } from '@/src/theme/colors';
 import { Habit, HabitLog, HabitLogStatus } from '@/src/types/habits';
@@ -25,6 +25,23 @@ type TimelineEvent = {
   milestoneLabel?: string;
 };
 
+type HabitDayTrend = {
+  dateKey: string;
+  label: string;
+  completedCount: number;
+  scheduledCount: number;
+  percentage: number;
+};
+
+const CHART_HEIGHT = 188;
+const CHART_SIDE_LABEL_WIDTH = 42;
+const CHART_BOTTOM_LABEL_HEIGHT = 54;
+const CHART_TOP_PADDING = 10;
+const CHART_RIGHT_PADDING = 14;
+const CHART_DOT_SIZE = 12;
+const CHART_POINT_LABEL_WIDTH = 40;
+const CHART_HORIZONTAL_INSET = 18;
+
 export default function HabitDetailScreen() {
   const params = useLocalSearchParams<{ id: string }>();
   const habit = useAppStore((state) => state.habits.find((item) => item.id === params.id));
@@ -36,6 +53,7 @@ export default function HabitDetailScreen() {
   const tokens = useThemeTokens();
   const isLight = tokens.mode === 'light';
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(startOfMonth(new Date()));
 
@@ -55,9 +73,20 @@ export default function HabitDetailScreen() {
   const monthSections = groupTimelineEventsByMonth(timelineEvents);
   const today = new Date();
   const todayKey = format(today, 'yyyy-MM-dd');
+  const weeklyTrend = getDayKeysEndingOn(todayKey, 7).map((dateKey) => buildHabitDayTrend(dateKey, habit, insight.logs));
+  const weeklyScheduled = sum(weeklyTrend.map((day) => day.scheduledCount));
+  const weeklyCompleted = sum(weeklyTrend.map((day) => day.completedCount));
+  const weeklyCompletionRate = weeklyScheduled ? Math.round((weeklyCompleted / weeklyScheduled) * 100) : 0;
+  const isNarrowChart = width < 390;
+  const chartWidth = Math.max(width - 28 - 36 - CHART_SIDE_LABEL_WIDTH - CHART_RIGHT_PADDING, 212);
+  const footerItemWidth = Math.max(Math.floor((chartWidth - 8) / weeklyTrend.length), isNarrowChart ? 36 : 40);
+  const chartPoints = buildChartPoints(weeklyTrend, chartWidth, CHART_HEIGHT);
   const calendarDays = buildMonthGrid(calendarMonth);
   const currentMonthStart = startOfMonth(today);
   const canGoToNextMonth = !isSameMonth(calendarMonth, currentMonthStart) && !isAfter(addMonths(calendarMonth, 1), currentMonthStart);
+  const completionMessage =
+    insight.completionRate >= 85 ? 'Locked in this cycle' : insight.completionRate >= 60 ? 'Momentum is building' : 'Still setting the pace';
+  const nextWinLabel = insight.streak.current > 0 ? `Day ${insight.streak.current + 1} is next` : 'First streak starts today';
 
   return (
     <SafeAreaView edges={['top']} style={[styles.safeArea, { backgroundColor: tokens.background }]}>
@@ -101,6 +130,159 @@ export default function HabitDetailScreen() {
 
         <View
           style={[
+            styles.trendCard,
+            {
+              backgroundColor: tokens.surface,
+              borderColor: tokens.border,
+            },
+          ]}
+        >
+          <View style={[styles.trendHeader, isNarrowChart && styles.trendHeaderStacked]}>
+            <View style={styles.trendHeaderCopy}>
+              <Text style={[styles.sectionTitle, { color: tokens.text }]}>Weekly trend</Text>
+              <Text style={[styles.trendSubtitle, { color: tokens.textMuted }]}>
+                {weeklyCompleted}/{weeklyScheduled || 0} real check-ins this week
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.trendScoreRow}>
+            <Text style={[styles.trendScoreValue, { color: tokens.text }]}>{weeklyCompletionRate}%</Text>
+            <Text style={[styles.trendScoreCaption, { color: tokens.textMuted }]}>completion for {habit.name}</Text>
+          </View>
+
+          <View style={styles.chartFrame}>
+            <View style={styles.yAxis}>
+              {[100, 75, 50, 25, 0].map((label) => (
+                <Text key={label} style={[styles.axisLabel, { color: tokens.textMuted }]}>
+                  {label}%
+                </Text>
+              ))}
+            </View>
+
+            <View style={[styles.chartArea, { width: chartWidth, height: CHART_HEIGHT }]}>
+              <View style={styles.chartPlot}>
+                {[100, 75, 50, 25, 0].map((label) => (
+                  <View
+                    key={`grid-${label}`}
+                    style={[
+                      styles.gridLine,
+                      {
+                        top: getChartTop(label, CHART_HEIGHT),
+                        borderColor: label === 0 ? (isLight ? 'rgba(148, 163, 184, 0.36)' : 'rgba(105, 131, 164, 0.38)') : (isLight ? 'rgba(148, 163, 184, 0.2)' : 'rgba(105, 131, 164, 0.22)'),
+                      },
+                    ]}
+                  />
+                ))}
+
+                {chartPoints.map((point) => (
+                  <View
+                    key={`vertical-${point.label}`}
+                    style={[
+                      styles.verticalLine,
+                      {
+                        left: point.x,
+                        height: CHART_HEIGHT - CHART_BOTTOM_LABEL_HEIGHT,
+                        backgroundColor: isLight ? 'rgba(148, 163, 184, 0.18)' : 'rgba(105, 131, 164, 0.14)',
+                      },
+                    ]}
+                  />
+                ))}
+
+                {chartPoints.slice(0, -1).map((point, index) => {
+                  const next = chartPoints[index + 1];
+                  const dx = next.x - point.x;
+                  const dy = next.y - point.y;
+                  const length = Math.sqrt(dx * dx + dy * dy);
+                  const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+
+                  return (
+                    <View
+                      key={`segment-${point.label}`}
+                      style={[
+                        styles.chartSegment,
+                        {
+                          left: point.x + dx / 2 - length / 2,
+                          top: point.y + dy / 2 - 2,
+                          width: length,
+                          backgroundColor: habit.color,
+                          transform: [{ rotate: `${angle}deg` }],
+                        },
+                      ]}
+                    />
+                  );
+                })}
+
+                {chartPoints.map((point) => (
+                  <View key={`fill-${point.label}`} style={[styles.areaFill, point.fillStyle, { backgroundColor: `${habit.color}18` }]} />
+                ))}
+
+                {chartPoints.map((point, index) => (
+                  <View key={`point-${point.label}`}>
+                    <Text
+                      style={[
+                        styles.pointValue,
+                        {
+                          left: clamp(point.x - CHART_POINT_LABEL_WIDTH / 2, 0, chartWidth - CHART_POINT_LABEL_WIDTH),
+                          top: point.y - 32,
+                          color: tokens.text,
+                        },
+                      ]}
+                    >
+                      {weeklyTrend[index]?.percentage ?? 0}%
+                    </Text>
+                    <View
+                      style={[
+                        styles.pointOuter,
+                        {
+                          left: point.x - CHART_DOT_SIZE / 2,
+                          top: point.y - CHART_DOT_SIZE / 2,
+                          backgroundColor: `${habit.color}66`,
+                        },
+                      ]}
+                    >
+                      <View style={[styles.pointInner, { backgroundColor: habit.color }]} />
+                    </View>
+                  </View>
+                ))}
+              </View>
+
+              <View style={styles.chartFooter}>
+                {weeklyTrend.map((day, index) => {
+                  const isTodayItem = index === weeklyTrend.length - 1;
+                  return (
+                    <View
+                      key={`footer-${day.dateKey}`}
+                      style={[
+                        styles.footerDayItem,
+                        { width: footerItemWidth },
+                        isNarrowChart && styles.footerDayItemCompact,
+                        isTodayItem && { backgroundColor: `${habit.color}18` },
+                      ]}
+                    >
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.footerDayLabel,
+                          isNarrowChart && styles.footerDayLabelCompact,
+                          { color: isTodayItem ? habit.color : tokens.textMuted },
+                        ]}
+                      >
+                        {day.label}
+                      </Text>
+                      <Text style={[styles.footerDayDate, isNarrowChart && styles.footerDayDateCompact, { color: isTodayItem ? habit.color : tokens.text }]}>
+                        {format(parseISO(day.dateKey), 'd')}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          </View>
+        </View>
+
+        <View
+          style={[
             styles.heroCard,
             {
               backgroundColor: isLight ? '#ffffff' : '#08111f',
@@ -108,15 +290,35 @@ export default function HabitDetailScreen() {
             },
           ]}
         >
+          <View style={styles.heroGlowRow}>
+            <View style={[styles.heroGlow, { backgroundColor: `${habit.color}1b` }]} />
+            <View style={[styles.heroGlowSecondary, { backgroundColor: isLight ? 'rgba(59, 130, 246, 0.08)' : 'rgba(56, 189, 248, 0.12)' }]} />
+          </View>
+
           <View style={styles.heroTopRow}>
             <View style={[styles.heroIconWrap, { backgroundColor: `${habit.color}22`, borderColor: `${habit.color}55` }]}>
-              <Ionicons name={habit.icon as React.ComponentProps<typeof Ionicons>['name']} size={34} color={habit.color} />
+              <Ionicons name={habit.icon as React.ComponentProps<typeof Ionicons>['name']} size={32} color={habit.color} />
             </View>
 
             <View style={styles.heroCopy}>
+              <View style={styles.heroTitleRow}>
+                <View style={[styles.heroPill, { backgroundColor: `${habit.color}18`, borderColor: `${habit.color}38` }]}>
+                  <Text style={[styles.heroPillText, { color: habit.color }]}>{habit.category}</Text>
+                </View>
+                <View
+                  style={[
+                    styles.heroPill,
+                    {
+                      backgroundColor: isLight ? '#edf4ff' : 'rgba(15,23,42,0.42)',
+                      borderColor: isLight ? '#d6e4ff' : 'rgba(148,163,184,0.18)',
+                    },
+                  ]}
+                >
+                  <Text style={[styles.heroPillText, { color: isLight ? '#355070' : '#cbd5e1' }]}>{nextWinLabel}</Text>
+                </View>
+              </View>
               <Text style={[styles.heroTitle, { color: isLight ? '#10243e' : '#ffffff' }]}>{habit.name}</Text>
-              <Text style={[styles.heroSubtitle, { color: isLight ? habit.color : '#4ade80' }]}>{habit.category}</Text>
-
+              <Text style={[styles.heroSubtitle, { color: isLight ? '#355070' : '#cbd5e1' }]}>{completionMessage}</Text>
               <View style={styles.heroChipRow}>
                 <View style={[styles.heroChip, { backgroundColor: isLight ? '#eef4ff' : 'rgba(15,23,42,0.24)', borderColor: isLight ? '#d9e6f3' : 'rgba(148,163,184,0.18)' }]}>
                   <Ionicons name="repeat-outline" size={13} color={isLight ? '#2563eb' : '#93c5fd'} />
@@ -130,16 +332,48 @@ export default function HabitDetailScreen() {
             </View>
           </View>
 
-          <View style={styles.metricRow}>
-            <MetricTile label="Current streak" value={String(insight.streak.current)} tint="#22c55e" mode={tokens.mode} />
-            <MetricTile label="Best streak" value={String(insight.streak.best)} tint="#38bdf8" mode={tokens.mode} />
-            <MetricTile label="Completion" value={`${insight.completionRate}%`} tint={habit.color} mode={tokens.mode} />
+          <View
+            style={[
+              styles.heroProgressCard,
+              {
+                backgroundColor: isLight ? '#f4f8ff' : 'rgba(10, 19, 35, 0.82)',
+                borderColor: isLight ? '#d9e6f3' : 'rgba(96,165,250,0.12)',
+              },
+            ]}
+          >
+            <View style={styles.heroProgressHeader}>
+              <Text style={[styles.heroProgressEyebrow, { color: isLight ? '#64748b' : '#93a4bd' }]}>Completion rate</Text>
+              <View style={[styles.heroCompletionBadge, { backgroundColor: `${habit.color}18`, borderColor: `${habit.color}38` }]}>
+                <Ionicons name="sparkles-outline" size={12} color={habit.color} />
+                <Text style={[styles.heroCompletionBadgeText, { color: habit.color }]}>{completionMessage}</Text>
+              </View>
+            </View>
+            <View style={styles.heroProgressValueRow}>
+              <Text style={[styles.heroProgressValue, { color: isLight ? '#10243e' : '#ffffff' }]}>{insight.completionRate}%</Text>
+              <Text style={[styles.heroProgressCaption, { color: isLight ? '#64748b' : '#8ca0bc' }]}>
+                {insight.streak.current > 0 ? `${insight.streak.current} day streak` : 'Start your streak today'}
+              </Text>
+            </View>
+            <View style={[styles.heroProgressTrack, { backgroundColor: isLight ? '#dbeafe' : 'rgba(37, 99, 235, 0.16)' }]}>
+              <View style={[styles.heroProgressFill, { width: `${Math.max(8, insight.completionRate)}%`, backgroundColor: habit.color }]} />
+            </View>
           </View>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.metricGrid}
+          >
+            <MetricTile label="Current" value={String(insight.streak.current)} tint="#22c55e" mode={tokens.mode} accent="streak" />
+            <MetricTile label="Best" value={String(insight.streak.best)} tint="#38bdf8" mode={tokens.mode} accent="record" />
+            <MetricTile label="Reminder" value={reminderLabel} tint={habit.color} mode={tokens.mode} accent="active" />
+          </ScrollView>
         </View>
 
         <View
           style={[
             styles.sectionCard,
+            styles.calendarSectionCard,
             {
               backgroundColor: tokens.surface,
               borderColor: tokens.border,
@@ -148,7 +382,7 @@ export default function HabitDetailScreen() {
         >
           <View style={styles.calendarHeader}>
             <Text style={[styles.sectionTitle, { color: tokens.text }]}>Calendar</Text>
-            <Text style={[styles.calendarHint, { color: tokens.textMuted }]}>Tap any past or current scheduled day to mark it complete.</Text>
+            <Text style={[styles.calendarHint, { color: tokens.textMuted }]}>Tap any past or current day to mark or undo it.</Text>
           </View>
 
           <View style={styles.calendarMonthHeader}>
@@ -179,7 +413,7 @@ export default function HabitDetailScreen() {
               const dateKey = format(day, 'yyyy-MM-dd');
               const inMonth = isSameMonth(day, calendarMonth);
               const isFuture = dateKey > todayKey;
-              const isScheduled = inMonth && isHabitScheduledForDate(habit, dateKey, insight.logs);
+              const isScheduled = inMonth && isCalendarDayCompletable(habit, dateKey, todayKey, insight.logs);
               const status = getLogStatusForHabitOnDate(habit, insight.logs, dateKey);
               const cellColors = getHabitCalendarDayColors({
                 tokens,
@@ -219,6 +453,7 @@ export default function HabitDetailScreen() {
         <View
           style={[
             styles.sectionCard,
+            styles.timelineSectionCard,
             {
               backgroundColor: tokens.surface,
               borderColor: tokens.border,
@@ -246,37 +481,51 @@ export default function HabitDetailScreen() {
 
                   return (
                     <View key={event.id} style={styles.timelineItem}>
-                      <View style={styles.timelineRail}>
-                        <View style={[styles.timelineDot, { backgroundColor: statusTone.soft, borderColor: statusTone.border, shadowColor: statusTone.glow }]}>
-                          <Ionicons name={getTimelineIcon(event.status)} size={15} color={statusTone.icon} />
-                        </View>
-                        {showLine ? <View style={[styles.timelineLine, { backgroundColor: tokens.border }]} /> : null}
-                      </View>
+                      <View style={[styles.timelineCard, { backgroundColor: tokens.surfaceMuted, borderColor: tokens.border }]}>
+                        <View style={styles.timelineCardTopRow}>
+                          <View
+                            style={[
+                              styles.timelineIconBlock,
+                              {
+                                backgroundColor: statusTone.soft,
+                                borderColor: statusTone.border,
+                                shadowColor: statusTone.glow,
+                              },
+                            ]}
+                          >
+                            <Ionicons name={getTimelineIcon(event.status)} size={14} color={statusTone.icon} />
+                          </View>
 
-                      <View style={styles.timelineContent}>
-                        <View style={styles.timelineMetaRow}>
-                          <Text style={[styles.timelineDate, { color: tokens.text }]}>{format(eventDate, 'MMM d')}</Text>
-                          <Text style={[styles.timelineWeekday, { color: tokens.textMuted }]}>{format(eventDate, 'EEE')}</Text>
-                          {isToday(eventDate) ? (
-                            <View style={[styles.timelineTodayBadge, { backgroundColor: tokens.primarySoft, borderColor: tokens.primary }]}>
-                              <Text style={[styles.timelineTodayText, { color: tokens.primary }]}>Today</Text>
+                          <View style={[styles.timelineDateBlock, { backgroundColor: tokens.mode === 'light' ? '#ffffff' : '#101a2b', borderColor: tokens.border }]}>
+                            <Text style={[styles.timelineDateDay, { color: tokens.text }]}>{format(eventDate, 'd')}</Text>
+                            <Text style={[styles.timelineDateMonth, { color: tokens.textMuted }]}>{format(eventDate, 'MMM')}</Text>
+                          </View>
+
+                          <View style={styles.timelineContent}>
+                            <View style={styles.timelineMetaRow}>
+                              <Text style={[styles.timelineWeekday, { color: tokens.textMuted }]}>{format(eventDate, 'EEE')}</Text>
+                              {isToday(eventDate) ? (
+                                <View style={[styles.timelineTodayBadge, { backgroundColor: tokens.primarySoft, borderColor: tokens.primary }]}>
+                                  <Text style={[styles.timelineTodayText, { color: tokens.primary }]}>Today</Text>
+                                </View>
+                              ) : null}
+                              <View style={[styles.timelineStatusBadge, { backgroundColor: statusTone.soft, borderColor: statusTone.border }]}>
+                                <Text style={[styles.timelineStatusText, { color: statusTone.text }]}>{event.badgeLabel}</Text>
+                              </View>
                             </View>
-                          ) : null}
-                          <View style={[styles.timelineStatusBadge, { backgroundColor: statusTone.soft, borderColor: statusTone.border }]}>
-                            <Text style={[styles.timelineStatusText, { color: statusTone.text }]}>{event.badgeLabel}</Text>
+
+                            <Text style={[styles.timelineTitle, { color: tokens.text }]}>{event.title}</Text>
+                            {event.milestoneLabel ? <Text style={[styles.timelineMilestone, { color: statusTone.text }]}>{event.milestoneLabel}</Text> : null}
+                            {event.valueLabel || event.note ? (
+                              <Text style={[styles.timelineBody, { color: tokens.textMuted }]}>
+                                {[event.valueLabel, event.note].filter(Boolean).join(' • ')}
+                              </Text>
+                            ) : null}
                           </View>
                         </View>
-
-                        <View style={[styles.timelineCard, { backgroundColor: tokens.surfaceMuted, borderColor: tokens.border }]}>
-                          <Text style={[styles.timelineTitle, { color: tokens.text }]}>{event.title}</Text>
-                          {event.milestoneLabel ? <Text style={[styles.timelineMilestone, { color: statusTone.text }]}>{event.milestoneLabel}</Text> : null}
-                          {event.valueLabel || event.note ? (
-                            <Text style={[styles.timelineBody, { color: tokens.textMuted }]}>
-                              {[event.valueLabel, event.note].filter(Boolean).join(' • ')}
-                            </Text>
-                          ) : null}
-                        </View>
                       </View>
+
+                      {showLine ? <View style={[styles.timelineDivider, { backgroundColor: tokens.border }]} /> : null}
                     </View>
                   );
                 })}
@@ -363,11 +612,29 @@ export default function HabitDetailScreen() {
   );
 }
 
-function MetricTile({ label, value, tint, mode }: { label: string; value: string; tint: string; mode: 'light' | 'dark' | 'amoled' }) {
+function MetricTile({
+  label,
+  value,
+  tint,
+  mode,
+  accent,
+}: {
+  label: string;
+  value: string;
+  tint: string;
+  mode: 'light' | 'dark' | 'amoled';
+  accent: string;
+}) {
   return (
     <View style={[styles.metricTile, { borderColor: `${tint}33`, backgroundColor: `${tint}14` }]}>
-      <Text style={[styles.metricValue, { color: mode === 'light' ? '#10243e' : '#ffffff' }]}>{value}</Text>
-      <Text style={[styles.metricLabel, { color: tint }]}>{label}</Text>
+      <View style={styles.metricTileHeader}>
+        <View style={[styles.metricAccentDot, { backgroundColor: tint }]} />
+        <Text style={[styles.metricLabel, { color: tint }]}>{label}</Text>
+      </View>
+      <Text style={[styles.metricValue, { color: mode === 'light' ? '#10243e' : '#ffffff' }]} numberOfLines={1}>
+        {value}
+      </Text>
+      <Text style={[styles.metricAccentText, { color: mode === 'light' ? '#4b5563' : '#94a3b8' }]}>{accent}</Text>
     </View>
   );
 }
@@ -425,6 +692,79 @@ function CalendarNavButton({
   );
 }
 
+function isCalendarDayCompletable(habit: Habit, dateKey: string, todayKey: string, logs: HabitLog[]) {
+  if (dateKey > todayKey) {
+    return false;
+  }
+
+  const currentDate = parseISO(dateKey);
+  if (habit.endDate && currentDate > parseISO(habit.endDate)) {
+    return false;
+  }
+
+  return true;
+}
+
+function getDayKeysEndingOn(endDateKey: string, days: number) {
+  const end = startOfDay(parseISO(endDateKey));
+  const start = subDays(end, days - 1);
+
+  return eachDayOfInterval({ start, end }).map((date) => format(date, 'yyyy-MM-dd'));
+}
+
+function buildHabitDayTrend(dateKey: string, habit: Habit, logs: HabitLog[]): HabitDayTrend {
+  const log = getHabitLogForDate(logs, habit.id, dateKey);
+  const isScheduled = Boolean(log) || isHabitScheduledForDate(habit, dateKey, logs);
+  const completedCount = log?.status === 'completed' ? 1 : 0;
+  const scheduledCount = isScheduled ? 1 : 0;
+
+  return {
+    dateKey,
+    label: format(parseISO(dateKey), 'EEE').toUpperCase().slice(0, 3),
+    completedCount,
+    scheduledCount,
+    percentage: scheduledCount ? Math.round((completedCount / scheduledCount) * 100) : 0,
+  };
+}
+
+function buildChartPoints(days: HabitDayTrend[], chartWidth: number, chartHeight: number) {
+  const innerHeight = chartHeight - CHART_BOTTOM_LABEL_HEIGHT - CHART_TOP_PADDING;
+  const horizontalInset = Math.min(CHART_HORIZONTAL_INSET, Math.max(12, chartWidth * 0.06));
+  const usableWidth = Math.max(chartWidth - horizontalInset * 2, 0);
+  const step = days.length > 1 ? usableWidth / (days.length - 1) : 0;
+
+  return days.map((day, index) => {
+    const x = horizontalInset + step * index;
+    const y = CHART_TOP_PADDING + ((100 - day.percentage) / 100) * innerHeight;
+    const fillHeight = chartHeight - CHART_BOTTOM_LABEL_HEIGHT - y;
+
+    return {
+      label: day.label,
+      x,
+      y,
+      fillStyle: {
+        left: x - step / 2,
+        width: Math.max(18, step),
+        top: y,
+        height: Math.max(0, fillHeight),
+      },
+    };
+  });
+}
+
+function getChartTop(value: number, chartHeight: number) {
+  const innerHeight = chartHeight - CHART_BOTTOM_LABEL_HEIGHT - CHART_TOP_PADDING;
+  return CHART_TOP_PADDING + ((100 - value) / 100) * innerHeight;
+}
+
+function sum(values: number[]) {
+  return values.reduce((total, value) => total + value, 0);
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
 function getHabitCalendarDayColors({
   tokens,
   status,
@@ -460,10 +800,10 @@ function getHabitCalendarDayColors({
 
   if (status === 'completed') {
     return {
-      backgroundColor: tokens.success,
-      borderColor: tokens.success,
-      textColor: tokens.mode === 'light' ? '#ffffff' : '#04110a',
-      accentColor: tokens.mode === 'light' ? '#ffffff' : '#04110a',
+      backgroundColor: tokens.mode === 'light' ? '#16a34a' : '#22c55e',
+      borderColor: tokens.mode === 'light' ? '#15803d' : '#22c55e',
+      textColor: '#ffffff',
+      accentColor: '#ffffff',
     };
   }
 
@@ -741,35 +1081,80 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   heroCard: {
-    borderRadius: 26,
+    borderRadius: 22,
     borderWidth: 1,
-    padding: 18,
-    gap: 18,
+    padding: 14,
+    gap: 12,
+    overflow: 'hidden',
+  },
+  heroGlowRow: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  heroGlow: {
+    position: 'absolute',
+    top: -72,
+    right: -26,
+    width: 188,
+    height: 188,
+    borderRadius: 999,
+  },
+  heroGlowSecondary: {
+    position: 'absolute',
+    bottom: -56,
+    left: -34,
+    width: 148,
+    height: 148,
+    borderRadius: 999,
   },
   heroTopRow: {
     flexDirection: 'row',
-    gap: 16,
+    gap: 12,
+    alignItems: 'flex-start',
   },
   heroIconWrap: {
-    width: 84,
-    height: 84,
-    borderRadius: 28,
+    width: 58,
+    height: 58,
+    borderRadius: 18,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
   heroCopy: {
     flex: 1,
+    gap: 6,
+  },
+  heroTitleRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
   },
-  heroTitle: {
-    fontSize: 30,
+  heroPill: {
+    minHeight: 26,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroPillText: {
+    fontSize: 10,
     fontWeight: '800',
-    lineHeight: 34,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  heroTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    lineHeight: 28,
   },
   heroSubtitle: {
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
   },
   heroChipRow: {
     flexDirection: 'row',
@@ -778,38 +1163,114 @@ const styles = StyleSheet.create({
     paddingTop: 2,
   },
   heroChip: {
-    minHeight: 34,
-    borderRadius: 14,
+    minHeight: 30,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  heroChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  heroProgressCard: {
+    borderRadius: 18,
     borderWidth: 1,
     paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  heroProgressHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  heroProgressEyebrow: {
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  heroProgressValueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  heroProgressValue: {
+    fontSize: 28,
+    fontWeight: '800',
+    lineHeight: 32,
+  },
+  heroCompletionBadge: {
+    minHeight: 26,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 9,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  heroCompletionBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  heroProgressTrack: {
+    height: 8,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  heroProgressFill: {
+    height: '100%',
+    borderRadius: 999,
+  },
+  heroProgressCaption: {
+    flex: 1,
+    textAlign: 'right',
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  metricGrid: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingRight: 6,
+  },
+  metricTile: {
+    width: 108,
+    minHeight: 74,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    justifyContent: 'space-between',
+  },
+  metricAccentDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+  },
+  metricTileHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
-  heroChipText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  metricRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  metricTile: {
-    flex: 1,
-    minHeight: 88,
-    borderRadius: 20,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    justifyContent: 'space-between',
-  },
   metricValue: {
-    fontSize: 28,
+    fontSize: 18,
     fontWeight: '800',
   },
   metricLabel: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  metricAccentText: {
+    fontSize: 11,
+    fontWeight: '600',
+    lineHeight: 14,
   },
   sectionCard: {
     borderRadius: 22,
@@ -817,55 +1278,209 @@ const styles = StyleSheet.create({
     padding: 18,
     gap: 14,
   },
+  timelineSectionCard: {
+    padding: 14,
+    gap: 12,
+  },
+  calendarSectionCard: {
+    borderRadius: 18,
+    padding: 12,
+    gap: 10,
+  },
   sectionTitle: {
     fontSize: 22,
     fontWeight: '800',
   },
+  trendCard: {
+    borderRadius: 22,
+    borderWidth: 1,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 16,
+    gap: 14,
+  },
+  trendHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  trendHeaderStacked: {
+    flexDirection: 'column',
+    gap: 10,
+  },
+  trendHeaderCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  trendSubtitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  trendScoreRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 10,
+  },
+  trendScoreValue: {
+    fontSize: 32,
+    lineHeight: 36,
+    fontWeight: '800',
+  },
+  trendScoreCaption: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  chartFrame: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  yAxis: {
+    width: CHART_SIDE_LABEL_WIDTH,
+    height: CHART_HEIGHT - CHART_BOTTOM_LABEL_HEIGHT,
+    justifyContent: 'space-between',
+    paddingTop: CHART_TOP_PADDING - 6,
+    paddingBottom: 2,
+  },
+  axisLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  chartArea: {
+    position: 'relative',
+  },
+  chartPlot: {
+    height: CHART_HEIGHT - CHART_BOTTOM_LABEL_HEIGHT,
+    overflow: 'hidden',
+  },
+  gridLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    borderTopWidth: 1,
+    borderStyle: 'dashed',
+  },
+  verticalLine: {
+    position: 'absolute',
+    top: CHART_TOP_PADDING,
+    width: 1,
+  },
+  chartSegment: {
+    position: 'absolute',
+    height: 4,
+    borderRadius: 999,
+  },
+  areaFill: {
+    position: 'absolute',
+    marginLeft: -2,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
+  pointOuter: {
+    position: 'absolute',
+    width: CHART_DOT_SIZE,
+    height: CHART_DOT_SIZE,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pointInner: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+  },
+  pointValue: {
+    position: 'absolute',
+    width: CHART_POINT_LABEL_WIDTH,
+    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  chartFooter: {
+    minHeight: CHART_BOTTOM_LABEL_HEIGHT,
+    paddingTop: 6,
+    paddingHorizontal: 4,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  footerDayItem: {
+    minHeight: CHART_BOTTOM_LABEL_HEIGHT - 6,
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 1,
+  },
+  footerDayItemCompact: {
+    minHeight: CHART_BOTTOM_LABEL_HEIGHT - 10,
+    paddingVertical: 3,
+    paddingHorizontal: 2,
+  },
+  footerDayLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  footerDayLabelCompact: {
+    fontSize: 9,
+    letterSpacing: 0.3,
+  },
+  footerDayDate: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  footerDayDateCompact: {
+    fontSize: 11,
+  },
   calendarHeader: {
-    gap: 4,
+    gap: 2,
   },
   calendarHint: {
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 12,
+    lineHeight: 16,
   },
   calendarMonthHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
+    gap: 8,
   },
   calendarMonthTitle: {
-    fontSize: 24,
+    fontSize: 19,
     fontWeight: '800',
   },
   calendarNavButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
+    width: 34,
+    height: 34,
+    borderRadius: 10,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
   calendarWeekHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 8,
   },
   calendarWeekday: {
-    flex: 1,
+    width: '14.2857%',
     textAlign: 'center',
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '700',
   },
   calendarGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    rowGap: 5,
   },
   calendarDayCell: {
-    width: '13.71%',
+    width: '14.2857%',
     aspectRatio: 1,
-    borderRadius: 18,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -878,12 +1493,12 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   calendarDayLabel: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: '700',
   },
   calendarDayIcon: {
     position: 'absolute',
-    bottom: 8,
+    bottom: 4,
   },
   timelineHeader: {
     flexDirection: 'row',
@@ -896,111 +1511,129 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   timelineSection: {
-    gap: 14,
+    gap: 10,
   },
   timelineMonthRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
   timelineMonthLabel: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    letterSpacing: 0.5,
   },
   timelineMonthDivider: {
     flex: 1,
     height: 1,
   },
   timelineItem: {
+    gap: 10,
+  },
+  timelineCardTopRow: {
     flexDirection: 'row',
-    gap: 12,
+    alignItems: 'flex-start',
+    gap: 10,
   },
-  timelineRail: {
-    width: 36,
-    alignItems: 'center',
-  },
-  timelineDot: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+  timelineIconBlock: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowOpacity: 0.28,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
+    shadowOpacity: 0.16,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
   },
-  timelineLine: {
-    width: 2,
-    flex: 1,
-    marginTop: 8,
-    borderRadius: 999,
-    minHeight: 68,
+  timelineDateBlock: {
+    width: 48,
+    minHeight: 54,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    gap: 1,
+  },
+  timelineDateDay: {
+    fontSize: 18,
+    fontWeight: '800',
+    lineHeight: 20,
+  },
+  timelineDateMonth: {
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
   },
   timelineContent: {
     flex: 1,
-    gap: 10,
+    gap: 4,
+    flexShrink: 1,
   },
   timelineMetaRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: 8,
-  },
-  timelineDate: {
-    fontSize: 15,
-    fontWeight: '800',
+    gap: 6,
   },
   timelineWeekday: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
   },
   timelineTodayBadge: {
-    minHeight: 28,
-    borderRadius: 10,
+    minHeight: 22,
+    borderRadius: 999,
     borderWidth: 1,
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
   timelineTodayText: {
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '800',
     textTransform: 'uppercase',
   },
   timelineStatusBadge: {
-    minHeight: 28,
-    borderRadius: 10,
+    minHeight: 22,
+    borderRadius: 999,
     borderWidth: 1,
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
   timelineStatusText: {
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '700',
   },
   timelineCard: {
-    borderRadius: 20,
+    borderRadius: 16,
     borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  timelineDivider: {
+    height: 1,
+    marginLeft: 40,
+    borderRadius: 999,
+    opacity: 0.7,
   },
   timelineTitle: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '800',
   },
   timelineMilestone: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '700',
   },
   timelineBody: {
     fontSize: 12,
-    lineHeight: 18,
+    lineHeight: 17,
   },
   emptyHint: {
     fontSize: 14,

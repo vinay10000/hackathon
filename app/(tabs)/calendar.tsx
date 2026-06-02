@@ -9,7 +9,7 @@ import { ScreenShell } from '@/src/components/screen-shell';
 import { getLogStatusForHabitOnDate, isHabitScheduledForDate } from '@/src/domain/habits';
 import { useAppStore } from '@/src/store/app-store';
 import { useThemeTokens } from '@/src/theme/colors';
-import { HabitLogStatus } from '@/src/types/habits';
+import { Habit, HabitLog, HabitLogStatus } from '@/src/types/habits';
 
 const weekdayLabels = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 
@@ -23,10 +23,7 @@ export default function CalendarScreen() {
   const days = buildCalendarGrid(currentMonth);
   const selectedDateValue = parseISO(selectedDate);
   const selectedDateLabel = format(selectedDateValue, 'MMMM d, yyyy');
-  const selectedDayStatuses = habits.map((habit) => ({
-    habit,
-    status: getLogStatusForHabitOnDate(habit, logs, selectedDate),
-  }));
+  const selectedDayStatuses = getCalendarHabitsForDate(habits, logs, selectedDate);
   const habitsForDate = selectedDayStatuses.filter((item) => item.status !== 'pending');
 
   return (
@@ -406,11 +403,27 @@ function buildCalendarGrid(currentMonth: Date) {
 }
 
 function getCalendarDayStatus(
-  habits: ReturnType<typeof useAppStore.getState>['habits'],
-  logs: ReturnType<typeof useAppStore.getState>['logs'],
+  habits: Habit[],
+  logs: HabitLog[],
   dateKey: string,
   todayKey: string,
 ): HabitLogStatus {
+  const loggedStatuses = getCalendarHabitsForDate(habits, logs, dateKey)
+    .map((item) => item.status)
+    .filter((status) => status !== 'pending' && status !== 'missed');
+
+  if (loggedStatuses.length) {
+    if (loggedStatuses.every((status) => status === 'completed')) {
+      return 'completed';
+    }
+
+    if (loggedStatuses.some((status) => status === 'completed' || status === 'partial')) {
+      return 'partial';
+    }
+
+    return loggedStatuses[0];
+  }
+
   const scheduledHabits = habits.filter((habit) => isHabitScheduledForDate(habit, dateKey, logs));
 
   if (!scheduledHabits.length) {
@@ -434,6 +447,16 @@ function getCalendarDayStatus(
   }
 
   return 'missed';
+}
+
+function getCalendarHabitsForDate(habits: Habit[], logs: HabitLog[], dateKey: string) {
+  return habits
+    .map((habit) => ({
+      habit,
+      status: getLogStatusForHabitOnDate(habit, logs, dateKey),
+      hasLog: logs.some((log) => log.habitId === habit.id && log.date === dateKey),
+    }))
+    .filter((item) => item.hasLog || item.status !== 'pending');
 }
 
 const styles = StyleSheet.create({

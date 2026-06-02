@@ -1,18 +1,16 @@
-import { addDays, format, isValid, parse, subDays } from 'date-fns';
+import { addDays, format, parseISO, subDays } from 'date-fns';
 
 import {
   calculateCompletionRate,
   createDefaultDraft,
   draftFromHabit,
-  formatScheduleLabel,
   getHabitLogForDate,
   getTodayProgress,
   HABIT_COLORS,
   HABIT_ICONS,
-  isHabitScheduledForDate,
 } from '@/src/domain/habits';
-import { generateGeminiText } from '@/src/lib/gemini';
-import { Habit, HabitFormDraft, HabitKind, HabitLog, HabitSchedule } from '@/src/types/habits';
+import { generateGeminiText, getGeminiModelName } from '@/src/lib/gemini';
+import { Habit, HabitFormDraft, HabitKind, HabitLog } from '@/src/types/habits';
 
 export type AiIntent =
   | 'create'
@@ -102,16 +100,23 @@ type ModelDraftFields = Partial<{
   endDate: string;
   reminderEnabled: boolean;
   reminderTime: string;
+  description: string;
+  motivationalNote: string;
 }>;
 
-type ModelCommand = {
+type ModelPlan = {
+  mode?: 'coach' | 'action' | 'mixed';
+  reply?: string;
   intent?: string;
   habitName?: string;
   dateKey?: string;
   value?: number;
   note?: string;
+  confidence?: number;
   needsClarification?: boolean;
   clarificationQuestion?: string;
+  confirmationMessage?: string;
+  destructiveSuggestion?: string;
   fields?: ModelDraftFields;
 };
 
@@ -121,25 +126,14 @@ export async function resolveHabitCommand(
   logs: HabitLog[],
   options: ResolveHabitCommandOptions = {},
 ): Promise<AiCommandPreview> {
-  const interpretedText = input.trim().replace(/\s+/g, ' ');
-
+  const interpretedText = normalizeInput(input);
   if (!interpretedText) {
-    return {
-      interpretedText,
-      intent: 'unknown',
-      preview: 'Say or type a habit request to prepare a safe preview.',
-      status: 'needs-clarification',
-      provider: 'local-rules',
-    };
+    return buildClarificationPreview('', 'unknown', 'Say or type what you want help with.');
   }
 
-  try {
-    const modelCommand = await classifyHabitCommand(interpretedText, habits, options.now ?? new Date());
-    if (modelCommand) {
-      return buildPreviewFromModel(interpretedText, modelCommand, habits, logs, options);
-    }
-  } catch {
-    // Fall back to local rules so the screen stays usable if Gemini is unavailable.
+  const modelPlan = await tryGenerateModelPlan(interpretedText, habits, logs, options);
+  if (modelPlan) {
+    return buildPreviewFromModelPlan(interpretedText, modelPlan, habits, logs, options);
   }
 
   return interpretHabitCommand(interpretedText, habits, logs, options);
@@ -151,13 +145,31 @@ export async function resolveAssistantConversationTurn(
   logs: HabitLog[],
   options: AssistantConversationOptions = {},
 ): Promise<AssistantConversationTurn> {
-  const trimmedInput = input.trim();
+  const trimmedInput = normalizeInput(input);
   const combinedInput = [options.pendingInterpretedText?.trim(), trimmedInput].filter(Boolean).join(' ').trim();
-  const preview = await resolveHabitCommand(combinedInput || trimmedInput, habits, logs, options);
-  const assistantText = await buildAssistantTextFromPreview(preview, habits, logs, options);
+  const interpretedText = combinedInput || trimmedInput;
+  const now = options.now ?? new Date();
+
+  const modelPlan = await tryGenerateModelPlan(interpretedText, habits, logs, {
+    ...options,
+    now,
+  });
+
+  const preview = modelPlan
+    ? buildPreviewFromModelPlan(interpretedText, modelPlan, habits, logs, { ...options, now })
+    : interpretHabitCommand(interpretedText, habits, logs, { ...options, now });
+
+  const assistantText = await buildAssistantText({
+    preview,
+    modelPlan,
+    interpretedText,
+    habits,
+    logs,
+    options: { ...options, now },
+  });
 
   return {
-    combinedInput: preview.interpretedText || combinedInput || trimmedInput,
+    combinedInput: interpretedText,
     preview,
     assistantText,
     stage:
@@ -175,133 +187,193 @@ export function interpretHabitCommand(
   logs: HabitLog[],
   options: ResolveHabitCommandOptions = {},
 ): AiCommandPreview {
-  const interpretedText = input.trim().replace(/\s+/g, ' ');
+  const interpretedText = normalizeInput(input);
   const text = interpretedText.toLowerCase();
   const now = options.now ?? new Date();
 
   if (!interpretedText) {
+    return buildClarificationPreview('', 'unknown', 'Say or type what you want help with.');
+  }
+
+  const matches = matchHabits(habits, interpretedText, options.selectedHabitId);
+  const matchedHabit = matches.length === 1 ? matches[0] : undefined;
+
+  if (matches.length > 1 && /\b(update|change|modify|delete|remove|archive|restore|complete|done|skip|log|note)\b/.test(text)) {
+    return buildDisambiguationPreview(
+      interpretedText,
+      'unknown',
+      matches,
+      'I found more than one matching habit. Pick the right one and I will continue safely.',
+    );
+  }
+
+  if (/\b(delete|remove)\b/.test(text)) {
+    return buildLifecyclePreview('delete', interpretedText, matchedHabit, matches, now);
+  }
+
+  if (/\barchive\b/.test(text)) {
+    return buildLifecyclePreview('archive', interpretedText, matchedHabit, matches, now);
+  }
+
+  if (/\brestore\b/.test(text)) {
+    return buildLifecyclePreview('restore', interpretedText, matchedHabit, matches, now);
+  }
+
+  if (/\b(complete|completed|done|finished)\b/.test(text)) {
+    return buildStatusPreview('complete', interpretedText, matchedHabit, matches, logs, now);
+  }
+
+  if (/\bskip(ped)?\b/.test(text)) {
+    return buildStatusPreview('skip', interpretedText, matchedHabit, matches, logs, now);
+  }
+
+  if (/\b(note|journal)\b/.test(text)) {
+    return buildNotePreview(interpretedText, matchedHabit, matches, logs, now, extractTrailingText(interpretedText));
+  }
+
+  if (/\b(log|track|record)\b/.test(text)) {
+    const value = extractNumber(interpretedText);
+    return buildLogPreview(interpretedText, matchedHabit, matches, logs, now, value);
+  }
+
+  if (/\b(create|add|start|new habit)\b/.test(text)) {
+    return buildCreatePreview(interpretedText, now);
+  }
+
+  if (/\b(update|change|edit|modify)\b/.test(text)) {
+    return buildModifyPreview(interpretedText, matchedHabit, matches, now);
+  }
+
+  if (/\b(summary|progress|how am i doing|recap)\b/.test(text)) {
     return {
       interpretedText,
-      intent: 'unknown',
-      preview: 'Say or type a habit request to prepare a safe preview.',
-      status: 'needs-clarification',
+      intent: 'summary',
+      preview: 'I can summarize your recent progress and patterns from your real habit data.',
+      status: 'previewed',
       provider: 'local-rules',
     };
   }
 
-  const matches = matchHabits(habits, text, interpretedText, undefined, options.selectedHabitId);
-  const matchedHabit = matches.length === 1 ? matches[0] : undefined;
-  const needsHabit = /\b(delete|remove|archive|restore|complete|done|skip|log|note|change|update|modify)\b/.test(text);
-
-  if (matches.length > 1) {
-    return buildDisambiguationPreview(interpretedText, 'unknown', matches, 'I found multiple matching habits. Choose one before anything changes.');
-  }
-
-  if (/\b(delete|remove)\b/.test(text)) {
-    return buildLifecyclePreview('delete', interpretedText, matchedHabit, logs, now, 'Delete habit', options.selectedHabitId);
-  }
-
-  if (/\barchive\b/.test(text)) {
-    return buildLifecyclePreview('archive', interpretedText, matchedHabit, logs, now, 'Archive habit', options.selectedHabitId);
-  }
-
-  if (/\brestore\b/.test(text)) {
-    return buildLifecyclePreview('restore', interpretedText, matchedHabit, logs, now, 'Restore habit', options.selectedHabitId);
-  }
-
-  if (/\b(complete|completed|done)\b/.test(text)) {
-    return buildStatusPreview('complete', interpretedText, matchedHabit, logs, now, needsHabit);
-  }
-
-  if (/\bskip(ped)?\b/.test(text)) {
-    return buildStatusPreview('skip', interpretedText, matchedHabit, logs, now, needsHabit);
-  }
-
-  if (/\b(note|journal)\b/.test(text)) {
-    return buildNotePreview(interpretedText, matchedHabit, logs, now, needsHabit);
-  }
-
-  if (/\b(log|drank|read|ran|walked|minutes|glasses|pages|reps|steps)\b/.test(text)) {
-    return buildLogPreview(interpretedText, matchedHabit, logs, now, needsHabit);
-  }
-
-  if (/\b(change|update|modify)\b/.test(text)) {
-    return buildModifyPreview(interpretedText, matchedHabit, now, 'local-rules');
-  }
-
-  if (/\b(summary|summarize|how am i doing|progress)\b/.test(text)) {
-    return buildSummaryPreview(interpretedText, habits, logs, 'local-rules');
-  }
-
-  if (/\b(suggest|recommend|idea|template|help me|goal)\b/.test(text)) {
-    return buildRecommendationPreview(interpretedText, habits, logs, 'local-rules');
-  }
-
-  if (/\b(create|add|start|remind me)\b/.test(text)) {
-    return buildCreatePreview(interpretedText, now, 'local-rules');
+  if (/\b(recommend|suggest|advice|coach|why|struggling|help)\b/.test(text)) {
+    return {
+      interpretedText,
+      intent: 'recommendation',
+      preview: 'I can coach you using your current habits, recent logs, and what you just told me.',
+      status: 'previewed',
+      provider: 'local-rules',
+    };
   }
 
   return {
     interpretedText,
     intent: 'unknown',
-    preview: 'I need a clearer command before previewing an action. Nothing has changed.',
-    status: 'needs-clarification',
+    preview: 'I can help you reflect, coach you through a habit problem, or prepare a safe action preview.',
+    status: 'previewed',
     provider: 'local-rules',
   };
 }
 
-async function classifyHabitCommand(interpretedText: string, habits: Habit[], now: Date) {
-  const habitContext = habits.slice(0, 30).map((habit) => ({
+async function tryGenerateModelPlan(
+  interpretedText: string,
+  habits: Habit[],
+  logs: HabitLog[],
+  options: AssistantConversationOptions,
+) {
+  try {
+    return await generateModelPlan(interpretedText, habits, logs, options);
+  } catch {
+    return null;
+  }
+}
+
+async function generateModelPlan(
+  interpretedText: string,
+  habits: Habit[],
+  logs: HabitLog[],
+  options: AssistantConversationOptions,
+): Promise<ModelPlan | null> {
+  const now = options.now ?? new Date();
+  const todayKey = format(now, 'yyyy-MM-dd');
+  const activeHabits = habits.filter((habit) => !habit.archivedAt);
+  const progress = getTodayProgress(activeHabits, logs, todayKey);
+
+  const habitContext = habits.slice(0, 24).map((habit) => ({
     name: habit.name,
     archived: Boolean(habit.archivedAt),
     category: habit.category,
-    type: habit.kind,
+    kind: habit.kind,
     targetValue: habit.targetValue ?? null,
     unit: habit.unit ?? '',
+    schedule: summarizeSchedule(habit),
+    recentStatus: getHabitLogForDate(logs, habit.id, todayKey)?.status ?? 'none',
   }));
 
+  const recentLogs = logs
+    .slice(0, 40)
+    .map((log) => ({
+      habitId: log.habitId,
+      date: log.date,
+      value: log.value ?? null,
+      note: log.note ?? '',
+      status: log.status,
+    }));
+
   const prompt = [
-    `Today is ${format(now, 'yyyy-MM-dd')}.`,
-    'You classify voice commands for a habit assistant. Return JSON only with no markdown.',
-    'Allowed intents: create, modify, delete, archive, restore, complete, skip, log, note, summary, recommendation, unknown.',
-    'For create or modify, fill fields only when the user clearly asked for them.',
-    'Use 24-hour HH:mm time if a reminder time is mentioned.',
-    'Use ISO YYYY-MM-DD for explicit startDate, endDate, or dateKey when present.',
-    'If the user did not provide enough detail, set needsClarification=true and add a short clarificationQuestion.',
+    `Today is ${todayKey}.`,
+    `HabitAI is a conversational habit coach that can also prepare safe app actions.`,
+    `Current model: ${getGeminiModelName()}.`,
+    `Today's progress: ${progress.completedCount}/${progress.scheduledCount} completed (${progress.percentage}%).`,
     `Available habits: ${JSON.stringify(habitContext)}`,
-    'Return shape:',
-    JSON.stringify({
+    `Recent logs: ${JSON.stringify(recentLogs)}`,
+    `Conversation history: ${JSON.stringify((options.conversationHistory ?? []).slice(-8))}`,
+    `Selected habit id: ${options.selectedHabitId ?? ''}`,
+    `Pending interpreted text: ${options.pendingInterpretedText ?? ''}`,
+    'Return JSON only. No markdown. No commentary outside the JSON.',
+    'If the user wants coaching, encouragement, reflection, planning, explanation, or help deciding what to do, set mode="coach" or mode="mixed" and write a natural reply.',
+    'If the user wants an app action, set mode="action" or mode="mixed", choose an intent, and include only the fields the user clearly asked for.',
+    'Use needsClarification=true instead of guessing when an action is ambiguous or destructive.',
+    'Do not claim the app already changed data. Use confirmationMessage for actions that need review.',
+    'Use ISO YYYY-MM-DD for dateKey, startDate, and endDate. Use 24-hour HH:mm for reminderTime.',
+    'Allowed intents: create, modify, delete, archive, restore, complete, skip, log, note, summary, recommendation, unknown.',
+    `Return shape: ${JSON.stringify({
+      mode: 'mixed',
+      reply: 'That makes sense. Your current streak is slipping mostly on weekdays. We can lower the target or move the reminder later.',
       intent: 'modify',
       habitName: 'Reading',
-      dateKey: '2026-05-25',
-      value: 30,
-      note: 'Felt focused',
+      dateKey: todayKey,
+      value: 20,
+      note: 'Felt distracted',
+      confidence: 0.9,
       needsClarification: false,
       clarificationQuestion: '',
+      confirmationMessage: 'I can update Reading to 20 minutes and move the reminder later. Review it below before I change anything.',
+      destructiveSuggestion: 'Archive it instead of deleting if you may want the history later.',
       fields: {
         name: 'Reading',
         kind: 'duration',
         category: 'Learning',
         icon: 'book',
         color: 'green',
-        targetValue: 30,
+        targetValue: 20,
         unit: 'minutes',
         scheduleKind: 'daily',
         weekdays: [1, 2, 3, 4, 5],
         cadenceCount: 3,
         intervalDays: 2,
-        startDate: '2026-05-25',
-        endDate: '2026-06-30',
+        startDate: todayKey,
+        endDate: '',
         reminderEnabled: true,
-        reminderTime: '21:00',
+        reminderTime: '20:30',
+        description: 'Read consistently in the evening.',
+        motivationalNote: 'Small progress still counts.',
       },
-    }),
-    `User request: ${interpretedText}`,
+    })}`,
+    `User message: ${interpretedText}`,
   ].join('\n\n');
 
   const raw = await generateGeminiText(prompt, {
     systemInstruction:
-      'You are a careful habit assistant parser. Prefer safe clarification over guessing. Output valid JSON only.',
+      'You are HabitAI, a careful conversational coach. Be warm, practical, and safe. Output valid JSON only.',
   });
 
   const json = extractJsonObject(raw);
@@ -310,488 +382,404 @@ async function classifyHabitCommand(interpretedText: string, habits: Habit[], no
   }
 
   try {
-    return JSON.parse(json) as ModelCommand;
+    return JSON.parse(json) as ModelPlan;
   } catch {
     return null;
   }
 }
 
-function buildPreviewFromModel(
+function buildPreviewFromModelPlan(
   interpretedText: string,
-  modelCommand: ModelCommand,
+  plan: ModelPlan,
   habits: Habit[],
   logs: HabitLog[],
   options: ResolveHabitCommandOptions,
 ): AiCommandPreview {
   const provider: AssistantProvider = 'google';
-  const intent = normalizeIntent(modelCommand.intent);
+  const intent = normalizeIntent(plan.intent);
   const now = options.now ?? new Date();
+  const matches = matchHabits(habits, plan.habitName ?? interpretedText, options.selectedHabitId, intent);
+  const matchedHabit = matches.length === 1 ? matches[0] : undefined;
 
-  if (modelCommand.needsClarification && modelCommand.clarificationQuestion) {
-    return {
-      interpretedText,
-      intent,
-      preview: modelCommand.clarificationQuestion,
-      status: 'needs-clarification',
-      provider,
-    };
+  if (plan.needsClarification && plan.clarificationQuestion) {
+    return buildClarificationPreview(interpretedText, intent, plan.clarificationQuestion, provider, matches);
   }
 
-  if (intent === 'summary') {
-    return buildSummaryPreview(interpretedText, habits, logs, provider);
-  }
-
-  if (intent === 'recommendation') {
-    return buildRecommendationPreview(interpretedText, habits, logs, provider);
-  }
-
-  if (intent === 'create') {
-    const baseDraft = hydrateDraftFromText(interpretedText, undefined, now);
-    const nextDraft = applyModelFieldsToDraft(baseDraft, modelCommand.fields, now);
-    if (modelCommand.habitName?.trim()) {
-      nextDraft.name = toTitleCase(modelCommand.habitName.trim());
-    }
-    return buildCreatePreviewFromDraft(interpretedText, nextDraft, provider);
-  }
-
-  const matches = matchHabits(
-    habits,
-    modelCommand.habitName ?? '',
-    interpretedText,
-    intent,
-    options.selectedHabitId,
-  );
-
-  if (matches.length > 1) {
+  if (matches.length > 1 && intent !== 'create' && intent !== 'summary' && intent !== 'recommendation' && intent !== 'unknown') {
     return buildDisambiguationPreview(
       interpretedText,
       intent,
       matches,
-      `I found multiple habits that could match${modelCommand.habitName ? ` "${modelCommand.habitName}"` : ''}. Choose one before I continue.`,
+      `I found multiple habits that could match${plan.habitName ? ` "${plan.habitName}"` : ''}. Pick one and I’ll continue safely.`,
       provider,
     );
   }
 
-  const matchedHabit = matches[0];
-
-  if (intent === 'modify') {
-    return buildModifyPreviewFromModel(interpretedText, matchedHabit, modelCommand.fields, now, provider);
+  switch (intent) {
+    case 'create':
+      return buildCreatePreviewFromFields(interpretedText, plan.fields, now, provider, plan.confirmationMessage);
+    case 'modify':
+      return buildModifyPreviewFromFields(interpretedText, matchedHabit, matches, plan.fields, now, provider, plan.confirmationMessage);
+    case 'delete':
+    case 'archive':
+    case 'restore':
+      return buildLifecyclePreview(intent, interpretedText, matchedHabit, matches, now, provider, plan.confirmationMessage, plan.destructiveSuggestion);
+    case 'complete':
+    case 'skip':
+      return buildStatusPreview(intent, interpretedText, matchedHabit, matches, logs, now, provider, plan.confirmationMessage, plan.dateKey);
+    case 'log':
+      return buildLogPreview(interpretedText, matchedHabit, matches, logs, now, plan.value, provider, plan.confirmationMessage, plan.dateKey, plan.note);
+    case 'note':
+      return buildNotePreview(interpretedText, matchedHabit, matches, logs, now, plan.note, provider, plan.confirmationMessage, plan.dateKey);
+    case 'summary':
+      return {
+        interpretedText,
+        intent,
+        preview: plan.confirmationMessage || 'I can summarize your recent progress from your real habit data.',
+        status: 'previewed',
+        provider,
+      };
+    case 'recommendation':
+      return {
+        interpretedText,
+        intent,
+        preview: plan.confirmationMessage || 'I can coach you based on your current habits and recent patterns.',
+        status: 'previewed',
+        provider,
+      };
+    default:
+      return {
+        interpretedText,
+        intent: 'unknown',
+        preview: plan.confirmationMessage || plan.reply || 'Tell me what you want to work on and I will help from there.',
+        status: 'previewed',
+        provider,
+      };
   }
-
-  if (intent === 'delete' || intent === 'archive' || intent === 'restore') {
-    return buildLifecyclePreview(intent, interpretedText, matchedHabit, logs, now, lifecycleVerb(intent), options.selectedHabitId, provider);
-  }
-
-  if (intent === 'complete' || intent === 'skip') {
-    return buildStatusPreview(intent, interpretedText, matchedHabit, logs, now, true, provider, modelCommand.dateKey);
-  }
-
-  if (intent === 'note') {
-    return buildNotePreview(interpretedText, matchedHabit, logs, now, true, provider, modelCommand.dateKey, modelCommand.note);
-  }
-
-  if (intent === 'log') {
-    return buildLogPreview(interpretedText, matchedHabit, logs, now, true, provider, modelCommand.dateKey, modelCommand.value, modelCommand.note);
-  }
-
-  return interpretHabitCommand(interpretedText, habits, logs, options);
 }
 
-function buildCreatePreview(interpretedText: string, now: Date, provider: AssistantProvider): AiCommandPreview {
-  return buildCreatePreviewFromDraft(interpretedText, hydrateDraftFromText(interpretedText, undefined, now), provider);
+async function buildAssistantText({
+  preview,
+  modelPlan,
+  interpretedText,
+  habits,
+  logs,
+  options,
+}: {
+  preview: AiCommandPreview;
+  modelPlan: ModelPlan | null;
+  interpretedText: string;
+  habits: Habit[];
+  logs: HabitLog[];
+  options: AssistantConversationOptions;
+}) {
+  if (preview.status === 'needs-clarification') {
+    return preview.preview;
+  }
+
+  if (preview.execution) {
+    return modelPlan?.confirmationMessage || buildNaturalConfirmationText(preview);
+  }
+
+  if (modelPlan?.reply?.trim()) {
+    return modelPlan.reply.trim();
+  }
+
+  if (preview.intent === 'summary' || preview.intent === 'recommendation' || preview.intent === 'unknown') {
+    const prompt = [
+      `User message: ${interpretedText}`,
+      `Available habits: ${JSON.stringify(habits.slice(0, 20).map((habit) => ({
+        name: habit.name,
+        category: habit.category,
+        kind: habit.kind,
+        targetValue: habit.targetValue ?? null,
+        unit: habit.unit ?? '',
+        archived: Boolean(habit.archivedAt),
+        completionRate: calculateCompletionRate(habit, logs),
+      })))}`,
+      `Recent logs: ${JSON.stringify(logs.slice(0, 50).map((log) => ({
+        habitId: log.habitId,
+        date: log.date,
+        status: log.status,
+        value: log.value ?? null,
+        note: log.note ?? '',
+      })))}`,
+      `Conversation history: ${JSON.stringify((options.conversationHistory ?? []).slice(-8))}`,
+      'Reply naturally like a warm in-app coach. Be concise, grounded in the provided data, and practical.',
+      'Do not claim anything was changed in the app unless the user confirms an action later.',
+    ].join('\n\n');
+
+    try {
+      return await generateGeminiText(prompt, {
+        systemInstruction:
+          'You are HabitAI, a conversational coach. Use only the provided context, keep the tone supportive, and stay specific.',
+      });
+    } catch {
+      return preview.preview;
+    }
+  }
+
+  return preview.preview;
 }
 
-function buildCreatePreviewFromDraft(interpretedText: string, draft: HabitFormDraft, provider: AssistantProvider): AiCommandPreview {
+function buildCreatePreview(interpretedText: string, now: Date, provider: AssistantProvider = 'local-rules'): AiCommandPreview {
+  return buildCreatePreviewFromFields(interpretedText, {}, now, provider);
+}
+
+function buildCreatePreviewFromFields(
+  interpretedText: string,
+  fields: ModelDraftFields | undefined,
+  now: Date,
+  provider: AssistantProvider,
+  confirmationMessage?: string,
+): AiCommandPreview {
+  const draft = applyModelFieldsToDraft(createDefaultDraft(format(now, 'yyyy-MM-dd')), fields, now);
   if (!draft.name.trim()) {
-    return {
-      interpretedText,
-      intent: 'create',
-      preview: 'Tell me the habit name first, like "Create a water habit for 8 glasses every day at 8 am."',
-      status: 'needs-clarification',
-      provider,
-      draftPayload: {
-        draft,
-        changeSummary: [],
-      },
-    };
+    return buildClarificationPreview(interpretedText, 'create', 'What should I call the new habit?', provider);
   }
 
-  const changes = summarizeDraft(draft);
+  const changeSummary = summarizeDraft(draft);
   return {
     interpretedText,
     intent: 'create',
-    preview: `Create this habit after confirmation:\n${changes.join('\n')}`,
+    preview:
+      confirmationMessage ||
+      `Create ${draft.name}${changeSummary.length ? ` with ${changeSummary.join(', ')}` : ''}. Review before I add it.`,
     status: 'previewed',
     provider,
-    draftPayload: {
-      draft,
-      changeSummary: changes,
-    },
-    execution: {
-      type: 'create',
-      draft,
-    },
+    draftPayload: { draft, changeSummary },
+    execution: { type: 'create', draft },
   };
 }
 
-function buildModifyPreview(interpretedText: string, matchedHabit: Habit | undefined, now: Date, provider: AssistantProvider): AiCommandPreview {
-  return buildModifyPreviewFromModel(interpretedText, matchedHabit, undefined, now, provider);
-}
-
-function buildModifyPreviewFromModel(
+function buildModifyPreview(
   interpretedText: string,
   matchedHabit: Habit | undefined,
-  modelFields: ModelDraftFields | undefined,
+  matches: Habit[],
   now: Date,
-  provider: AssistantProvider,
+  provider: AssistantProvider = 'local-rules',
 ): AiCommandPreview {
-  if (!matchedHabit) {
-    return {
-      interpretedText,
-      intent: 'modify',
-      preview: 'Tell me which habit to modify so I can prepare the exact changes safely.',
-      status: 'needs-clarification',
-      provider,
-    };
+  if (matches.length > 1) {
+    return buildDisambiguationPreview(interpretedText, 'modify', matches, 'Choose which habit you want to update.', provider);
   }
 
-  const existingDraft = draftFromHabit(matchedHabit);
-  const heuristicDraft = hydrateDraftFromText(interpretedText, existingDraft, now);
-  const nextDraft = applyModelFieldsToDraft(heuristicDraft, modelFields, now);
-  const changeSummary = summarizeDraftDiff(existingDraft, nextDraft);
+  if (!matchedHabit) {
+    return buildClarificationPreview(interpretedText, 'modify', 'Which habit should I update?', provider);
+  }
 
+  const fallbackFields: ModelDraftFields = inferModifyFieldsFromText(interpretedText, matchedHabit, now);
+  return buildModifyPreviewFromFields(interpretedText, matchedHabit, matches, fallbackFields, now, provider);
+}
+
+function buildModifyPreviewFromFields(
+  interpretedText: string,
+  matchedHabit: Habit | undefined,
+  matches: Habit[],
+  fields: ModelDraftFields | undefined,
+  now: Date,
+  provider: AssistantProvider,
+  confirmationMessage?: string,
+): AiCommandPreview {
+  if (matches.length > 1) {
+    return buildDisambiguationPreview(interpretedText, 'modify', matches, 'Choose which habit you want to update.', provider);
+  }
+
+  if (!matchedHabit) {
+    return buildClarificationPreview(interpretedText, 'modify', 'Which habit should I update?', provider);
+  }
+
+  const draft = applyModelFieldsToDraft(draftFromHabit(matchedHabit), fields, now);
+  const changeSummary = summarizeDraftChanges(matchedHabit, draft);
   if (!changeSummary.length) {
-    return {
+    return buildClarificationPreview(
       interpretedText,
-      intent: 'modify',
-      preview: `I found "${matchedHabit.name}", but I still need the change details. Try "Change ${matchedHabit.name} to 30 minutes every night at 9 pm."`,
-      status: 'needs-clarification',
+      'modify',
+      `I found ${matchedHabit.name}, but I still need the change you want me to make.`,
       provider,
-      matchedHabitId: matchedHabit.id,
-    };
+      [matchedHabit],
+    );
   }
 
   return {
     interpretedText,
     intent: 'modify',
-    preview: `Update ${matchedHabit.name} after confirmation:\n${changeSummary.join('\n')}`,
+    preview: confirmationMessage || `Update ${matchedHabit.name}: ${changeSummary.join(', ')}.`,
     status: 'previewed',
     provider,
     matchedHabitId: matchedHabit.id,
-    draftPayload: {
-      draft: nextDraft,
-      changeSummary,
-    },
-    execution: {
-      type: 'modify',
-      habitId: matchedHabit.id,
-      draft: nextDraft,
-    },
-  };
-}
-
-function buildSummaryPreview(
-  interpretedText: string,
-  habits: Habit[],
-  logs: HabitLog[],
-  provider: AssistantProvider,
-): AiCommandPreview {
-  const todayKey = format(new Date(), 'yyyy-MM-dd');
-  const activeHabits = habits.filter((habit) => !habit.archivedAt);
-  const progress = getTodayProgress(activeHabits, logs, todayKey);
-  const recentWindow = Array.from({ length: 7 }, (_, index) => format(subDays(new Date(), index), 'yyyy-MM-dd'));
-  const recentScheduled = activeHabits.flatMap((habit) =>
-    recentWindow
-      .filter((dateKey) => isHabitScheduledForDate(habit, dateKey, logs))
-      .map((dateKey) => ({ habit, dateKey })),
-  );
-  const recentCompleted = recentScheduled.filter(
-    ({ habit, dateKey }) => getHabitLogForDate(logs, habit.id, dateKey)?.status === 'completed',
-  ).length;
-  const weeklyRate = recentScheduled.length ? Math.round((recentCompleted / recentScheduled.length) * 100) : 0;
-  const bestHabit = activeHabits
-    .map((habit) => ({ habit, rate: calculateCompletionRate(habit, logs) }))
-    .sort((a, b) => b.rate - a.rate)[0];
-
-  const summary = [
-    `Today you have completed ${progress.completedCount} of ${progress.scheduledCount} scheduled habits, which is ${progress.percentage}%.`,
-    `Your rolling 7-day completion rate is ${weeklyRate}%.`,
-    bestHabit
-      ? `Your strongest habit right now is ${bestHabit.habit.name} at ${bestHabit.rate}% completion.`
-      : 'There is not enough history yet to rank your habits.',
-  ].join(' ');
-
-  return {
-    interpretedText,
-    intent: 'summary',
-    preview: summary,
-    status: 'previewed',
-    provider,
-  };
-}
-
-function buildRecommendationPreview(
-  interpretedText: string,
-  habits: Habit[],
-  logs: HabitLog[],
-  provider: AssistantProvider,
-): AiCommandPreview {
-  const text = interpretedText.toLowerCase();
-  const categories = habits.map((habit) => habit.category.toLowerCase());
-  const suggestions: string[] = [];
-
-  if (/\bwater|hydration|drink\b/.test(text) || categories.includes('wellness')) {
-    suggestions.push('Hydration: 8 glasses daily with a morning reminder at 8:00.');
-  }
-  if (/\bread|study|learn|focus\b/.test(text)) {
-    suggestions.push('Reading: 20 minutes daily in the evening with a calm 9:00 reminder.');
-  }
-  if (/\bfitness|workout|walk|run|exercise\b/.test(text)) {
-    suggestions.push('Movement: 30 minutes 4 times per week, starting with weekdays.');
-  }
-  if (/\bsleep|night|bed\b/.test(text)) {
-    suggestions.push('Sleep wind-down: phone off 30 minutes before bed every day.');
-  }
-
-  if (!suggestions.length) {
-    const activeCount = habits.filter((habit) => !habit.archivedAt).length;
-    const completionAverage = activeCount
-      ? Math.round(habits.reduce((sum, habit) => sum + calculateCompletionRate(habit, logs), 0) / activeCount)
-      : 0;
-    suggestions.push(
-      activeCount && completionAverage < 60
-        ? 'Keep the next habit small: choose one yes/no habit or one count habit with a target under 10.'
-        : 'A good next habit is one daily yes/no habit, one measurable habit, and one recovery habit like sleep or stretching.',
-    );
-    suggestions.push('Use a reminder only for the habit most likely to slip, so notifications stay useful.');
-    suggestions.push('If a goal feels large, break it into the smallest daily action you can finish in under 5 minutes.');
-  }
-
-  return {
-    interpretedText,
-    intent: 'recommendation',
-    preview: `Suggested habits and coaching:\n- ${suggestions.join('\n- ')}`,
-    status: 'previewed',
-    provider,
+    draftPayload: { draft, changeSummary },
+    execution: { type: 'modify', habitId: matchedHabit.id, draft },
   };
 }
 
 function buildLifecyclePreview(
   intent: 'delete' | 'archive' | 'restore',
   interpretedText: string,
-  habit: Habit | undefined,
-  logs: HabitLog[],
+  matchedHabit: Habit | undefined,
+  matches: Habit[],
   now: Date,
-  verb: string,
-  selectedHabitId?: string,
   provider: AssistantProvider = 'local-rules',
+  confirmationMessage?: string,
+  destructiveSuggestion?: string,
 ): AiCommandPreview {
-  if (!habit) {
-    return {
-      interpretedText,
-      intent,
-      preview: `Which habit should I use for "${verb.toLowerCase()}"? No data will change until you confirm.`,
-      status: 'needs-clarification',
-      provider,
-    };
+  if (matches.length > 1) {
+    return buildDisambiguationPreview(interpretedText, intent, matches, `Choose which habit you want to ${intent}.`, provider);
   }
 
-  const historyCount = logs.filter((log) => log.habitId === habit.id).length;
-  const destructiveSuggestion =
-    intent === 'delete' && historyCount > 0
-      ? `${habit.name} already has ${historyCount} historical entr${historyCount === 1 ? 'y' : 'ies'}. Archive is safer if you want to keep past progress.`
-      : undefined;
+  if (!matchedHabit) {
+    return buildClarificationPreview(interpretedText, intent, `Which habit should I ${intent}?`, provider);
+  }
 
   return {
     interpretedText,
     intent,
     preview:
-      intent === 'delete'
-        ? `Delete ${habit.name} after explicit confirmation.${destructiveSuggestion ? `\n${destructiveSuggestion}` : ''}`
-        : `${verb}: ${habit.name}. Review this preview before confirming.`,
+      confirmationMessage ||
+      `${capitalize(intent)} ${matchedHabit.name}.${intent === 'delete' ? ' This removes its history too.' : ''}`,
     status: 'previewed',
     provider,
-    matchedHabitId: habit.id,
-    destructiveSuggestion,
-    execution:
-      intent === 'delete'
-        ? { type: 'delete', habitId: habit.id }
-        : intent === 'archive'
-          ? { type: 'archive', habitId: habit.id }
-          : { type: 'restore', habitId: habit.id },
+    matchedHabitId: matchedHabit.id,
+    destructiveSuggestion: destructiveSuggestion || (intent === 'delete' ? 'Archive it instead if you might want the history later.' : undefined),
+    execution: { type: intent, habitId: matchedHabit.id },
   };
 }
 
 function buildStatusPreview(
   intent: 'complete' | 'skip',
   interpretedText: string,
-  habit: Habit | undefined,
+  matchedHabit: Habit | undefined,
+  matches: Habit[],
   logs: HabitLog[],
   now: Date,
-  needsHabit: boolean,
   provider: AssistantProvider = 'local-rules',
-  explicitDate?: string,
+  confirmationMessage?: string,
+  dateKeyInput?: string,
 ): AiCommandPreview {
-  if (needsHabit && !habit) {
-    return {
+  if (matches.length > 1) {
+    return buildDisambiguationPreview(
       interpretedText,
       intent,
-      preview: `Which habit should I ${intent === 'complete' ? 'mark complete' : 'mark skipped'}? Nothing has changed yet.`,
-      status: 'needs-clarification',
+      matches,
+      `Choose which habit you want to mark ${intent === 'complete' ? 'complete' : 'skipped'}.`,
       provider,
-    };
+    );
   }
 
-  if (!habit) {
-    return {
+  if (!matchedHabit) {
+    return buildClarificationPreview(
       interpretedText,
       intent,
-      preview: 'Choose a habit first so I can prepare the correct status update.',
-      status: 'needs-clarification',
+      `Which habit should I mark ${intent === 'complete' ? 'complete' : 'skipped'}?`,
       provider,
-    };
+    );
   }
 
-  const dateKey = resolveActionDate(interpretedText, now, explicitDate);
+  const dateKey = normalizeDateKey(dateKeyInput, interpretedText, now) ?? format(now, 'yyyy-MM-dd');
+  const existing = getHabitLogForDate(logs, matchedHabit.id, dateKey);
+  const alreadyDone = existing?.status === (intent === 'complete' ? 'completed' : 'skipped');
+  const label = friendlyDateLabel(dateKey, now);
+
   return {
     interpretedText,
     intent,
-    preview: `${intent === 'complete' ? 'Mark complete' : 'Mark skipped'}: ${habit.name} on ${friendlyDateLabel(dateKey, now)}.`,
+    preview:
+      confirmationMessage ||
+      (alreadyDone
+        ? `${matchedHabit.name} is already marked ${intent === 'complete' ? 'complete' : 'skipped'} for ${label}.`
+        : `${intent === 'complete' ? 'Mark complete' : 'Mark skipped'}: ${matchedHabit.name} for ${label}.`),
     status: 'previewed',
     provider,
-    matchedHabitId: habit.id,
+    matchedHabitId: matchedHabit.id,
     targetDate: dateKey,
-    execution:
-      intent === 'complete'
-        ? { type: 'complete', habitId: habit.id, dateKey }
-        : { type: 'skip', habitId: habit.id, dateKey },
+    execution: { type: intent, habitId: matchedHabit.id, dateKey },
   };
 }
 
 function buildLogPreview(
   interpretedText: string,
-  habit: Habit | undefined,
+  matchedHabit: Habit | undefined,
+  matches: Habit[],
   logs: HabitLog[],
   now: Date,
-  needsHabit: boolean,
+  value: number | undefined,
   provider: AssistantProvider = 'local-rules',
-  explicitDate?: string,
-  explicitValue?: number,
-  explicitNote?: string,
+  confirmationMessage?: string,
+  dateKeyInput?: string,
+  note?: string,
 ): AiCommandPreview {
-  if (needsHabit && !habit) {
-    return {
-      interpretedText,
-      intent: 'log',
-      preview: 'Tell me which habit to log so I can prepare the right progress update.',
-      status: 'needs-clarification',
-      provider,
-    };
+  if (matches.length > 1) {
+    return buildDisambiguationPreview(interpretedText, 'log', matches, 'Choose which habit you want to log.', provider);
   }
 
-  if (!habit) {
-    return {
-      interpretedText,
-      intent: 'log',
-      preview: 'Choose a habit first so I can log progress safely.',
-      status: 'needs-clarification',
-      provider,
-    };
+  if (!matchedHabit) {
+    return buildClarificationPreview(interpretedText, 'log', 'Which habit do you want to log progress for?', provider);
   }
 
-  const value = explicitValue ?? extractNumericValue(interpretedText);
-  if (value == null) {
-    return {
+  if (matchedHabit.kind === 'yesNo' || matchedHabit.kind === 'negative') {
+    return buildClarificationPreview(
       interpretedText,
-      intent: 'log',
-      preview: `I found "${habit.name}", but I still need the amount to log.`,
-      status: 'needs-clarification',
+      'log',
+      `${matchedHabit.name} does not use numeric progress logging. You can mark it complete, skip it, or add a note.`,
       provider,
-      matchedHabitId: habit.id,
-    };
+      [matchedHabit],
+    );
   }
 
-  const dateKey = resolveActionDate(interpretedText, now, explicitDate);
-  const note = explicitNote || undefined;
-  const unitLabel = habit.unit ? ` ${habit.unit}` : '';
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return buildClarificationPreview(interpretedText, 'log', `How much progress should I log for ${matchedHabit.name}?`, provider, [matchedHabit]);
+  }
+
+  const dateKey = normalizeDateKey(dateKeyInput, interpretedText, now) ?? format(now, 'yyyy-MM-dd');
+  const label = friendlyDateLabel(dateKey, now);
   return {
     interpretedText,
     intent: 'log',
-    preview: `Log ${value}${unitLabel} for ${habit.name} on ${friendlyDateLabel(dateKey, now)}.`,
+    preview: confirmationMessage || `Log ${value} ${matchedHabit.unit ?? ''} for ${matchedHabit.name} on ${label}.`.trim(),
     status: 'previewed',
     provider,
-    matchedHabitId: habit.id,
+    matchedHabitId: matchedHabit.id,
     targetDate: dateKey,
     logValue: value,
     noteText: note,
-    execution: {
-      type: 'log',
-      habitId: habit.id,
-      dateKey,
-      value,
-      note,
-    },
+    execution: { type: 'log', habitId: matchedHabit.id, dateKey, value, note },
   };
 }
 
 function buildNotePreview(
   interpretedText: string,
-  habit: Habit | undefined,
+  matchedHabit: Habit | undefined,
+  matches: Habit[],
   logs: HabitLog[],
   now: Date,
-  needsHabit: boolean,
+  note: string | undefined,
   provider: AssistantProvider = 'local-rules',
-  explicitDate?: string,
-  explicitNote?: string,
+  confirmationMessage?: string,
+  dateKeyInput?: string,
 ): AiCommandPreview {
-  if (needsHabit && !habit) {
-    return {
-      interpretedText,
-      intent: 'note',
-      preview: 'Tell me which habit to attach the note to before I save anything.',
-      status: 'needs-clarification',
-      provider,
-    };
+  if (matches.length > 1) {
+    return buildDisambiguationPreview(interpretedText, 'note', matches, 'Choose which habit should get the note.', provider);
   }
 
-  if (!habit) {
-    return {
-      interpretedText,
-      intent: 'note',
-      preview: 'Choose a habit first so I can place the note on the correct log.',
-      status: 'needs-clarification',
-      provider,
-    };
+  if (!matchedHabit) {
+    return buildClarificationPreview(interpretedText, 'note', 'Which habit should I add the note to?', provider);
   }
 
-  const note = explicitNote?.trim() || extractNoteText(interpretedText, habit.name);
-  if (!note) {
-    return {
-      interpretedText,
-      intent: 'note',
-      preview: `I found "${habit.name}", but I still need the note text.`,
-      status: 'needs-clarification',
-      provider,
-      matchedHabitId: habit.id,
-    };
+  if (!note?.trim()) {
+    return buildClarificationPreview(interpretedText, 'note', `What note should I save for ${matchedHabit.name}?`, provider, [matchedHabit]);
   }
 
-  const dateKey = resolveActionDate(interpretedText, now, explicitDate);
+  const dateKey = normalizeDateKey(dateKeyInput, interpretedText, now) ?? format(now, 'yyyy-MM-dd');
+  const label = friendlyDateLabel(dateKey, now);
   return {
     interpretedText,
     intent: 'note',
-    preview: `Save this note for ${habit.name} on ${friendlyDateLabel(dateKey, now)}:\n"${note}"`,
+    preview: confirmationMessage || `Add note to ${matchedHabit.name} for ${label}: "${note.trim()}".`,
     status: 'previewed',
     provider,
-    matchedHabitId: habit.id,
+    matchedHabitId: matchedHabit.id,
     targetDate: dateKey,
-    noteText: note,
-    execution: {
-      type: 'note',
-      habitId: habit.id,
-      dateKey,
-      note,
-    },
+    noteText: note.trim(),
+    execution: { type: 'note', habitId: matchedHabit.id, dateKey, note: note.trim() },
   };
 }
 
@@ -799,13 +787,13 @@ function buildDisambiguationPreview(
   interpretedText: string,
   intent: AiIntent,
   matches: Habit[],
-  message: string,
+  preview: string,
   provider: AssistantProvider = 'local-rules',
 ): AiCommandPreview {
   return {
     interpretedText,
     intent,
-    preview: message,
+    preview,
     status: 'needs-clarification',
     provider,
     matchedHabitIds: matches.map((habit) => habit.id),
@@ -817,262 +805,213 @@ function buildDisambiguationPreview(
   };
 }
 
-function hydrateDraftFromText(input: string, baseDraft?: HabitFormDraft, now: Date = new Date()) {
-  const text = input.toLowerCase();
-  const draft = baseDraft ? { ...baseDraft } : createDefaultDraft(format(now, 'yyyy-MM-dd'));
-
-  const explicitName = getExplicitHabitName(input);
-  if (explicitName) {
-    draft.name = explicitName;
-  }
-
-  if (/\bminutes?\b/.test(text)) {
-    draft.kind = 'duration';
-    draft.unit = 'minutes';
-  } else if (/\b(glass|glasses|cups|pages|steps|reps|times)\b/.test(text)) {
-    draft.kind = 'count';
-    const unitMatch = text.match(/\b(glasses|glass|cups|pages|steps|reps|times)\b/);
-    draft.unit = unitMatch?.[0] === 'glass' ? 'glasses' : unitMatch?.[0] ?? draft.unit;
-  } else if (/\bavoid|quit|stop|less|reduce\b/.test(text)) {
-    draft.kind = 'negative';
-  } else if (!baseDraft) {
-    draft.kind = 'yesNo';
-  }
-
-  const targetMatch = text.match(/(\d+)\s*(minutes?|glasses|glass|cups|pages|steps|reps|times)/);
-  if (targetMatch) {
-    draft.targetValue = targetMatch[1];
-    if (draft.kind !== 'duration') {
-      draft.kind = 'count';
-    }
-    if (targetMatch[2].startsWith('minute')) {
-      draft.kind = 'duration';
-      draft.unit = 'minutes';
-    } else {
-      draft.unit = targetMatch[2] === 'glass' ? 'glasses' : targetMatch[2];
-    }
-  }
-
-  if (/\bevery day|daily|every night|nightly\b/.test(text)) {
-    draft.scheduleKind = 'daily';
-  } else if (/\bweekdays?\b/.test(text)) {
-    draft.scheduleKind = 'weekdays';
-    draft.weekdays = [1, 2, 3, 4, 5];
-  } else {
-    const perWeek = text.match(/(\d+)\s+times?\s+(a|per)\s+week/);
-    const perMonth = text.match(/(\d+)\s+times?\s+(a|per)\s+month/);
-    const everyDays = text.match(/every\s+(\d+)\s+days?/);
-    if (perWeek) {
-      draft.scheduleKind = 'timesPerWeek';
-      draft.cadenceCount = perWeek[1];
-    } else if (perMonth) {
-      draft.scheduleKind = 'timesPerMonth';
-      draft.cadenceCount = perMonth[1];
-    } else if (everyDays) {
-      draft.scheduleKind = 'interval';
-      draft.intervalDays = everyDays[1];
-    }
-  }
-
-  const reminder = extractReminderTime(text);
-  if (reminder) {
-    draft.reminderEnabled = true;
-    draft.reminderTime = reminder;
-  }
-
-  const category = inferCategory(text);
-  if (category) {
-    draft.category = category;
-  }
-
-  const [icon, color] = inferVisuals(text, draft.category);
-  draft.icon = icon;
-  draft.color = color;
-
-  const parsedStartDate = extractStartDate(text, now);
-  if (parsedStartDate) {
-    draft.startDate = parsedStartDate;
-  }
-
-  const parsedEndDate = extractEndDate(text, now);
-  if (parsedEndDate) {
-    draft.endDate = parsedEndDate;
-  }
-
-  return draft;
+function buildClarificationPreview(
+  interpretedText: string,
+  intent: AiIntent,
+  preview: string,
+  provider: AssistantProvider = 'local-rules',
+  matches?: Habit[],
+): AiCommandPreview {
+  return {
+    interpretedText,
+    intent,
+    preview,
+    status: 'needs-clarification',
+    provider,
+    matchedHabitId: matches?.length === 1 ? matches[0].id : undefined,
+  };
 }
 
-function applyModelFieldsToDraft(
-  draft: HabitFormDraft,
-  fields: ModelDraftFields | undefined,
-  now: Date,
-): HabitFormDraft {
-  if (!fields) {
-    return draft;
+function buildNaturalConfirmationText(preview: AiCommandPreview) {
+  switch (preview.intent) {
+    case 'create':
+      return `${preview.preview} Say confirm if that looks right, or tell me what to tweak.`;
+    case 'modify':
+      return `${preview.preview} I can adjust it before saving if you want.`;
+    case 'delete':
+      return `${preview.preview} This is destructive, so please confirm only if you're sure.`;
+    case 'archive':
+    case 'restore':
+    case 'complete':
+    case 'skip':
+    case 'log':
+    case 'note':
+      return `${preview.preview} Confirm when you're ready.`;
+    default:
+      return preview.preview;
+  }
+}
+
+function matchHabits(habits: Habit[], query: string, selectedHabitId?: string, intent?: AiIntent) {
+  if (selectedHabitId) {
+    const selected = habits.find((habit) => habit.id === selectedHabitId);
+    if (selected) {
+      return [selected];
+    }
   }
 
-  const nextDraft = { ...draft };
+  const normalizedQuery = query.toLowerCase();
+  const candidateHabits = intent === 'restore' ? habits.filter((habit) => habit.archivedAt) : habits;
+  const scored = candidateHabits
+    .map((habit) => {
+      const name = habit.name.toLowerCase();
+      let score = 0;
+      if (normalizedQuery.includes(name)) score += 5;
+      if (name.includes(normalizedQuery)) score += 4;
+      if (normalizedQuery.includes(habit.category.toLowerCase())) score += 2;
+      const words = name.split(/\s+/);
+      for (const word of words) {
+        if (word.length > 2 && normalizedQuery.includes(word)) {
+          score += 1;
+        }
+      }
+      if (!habit.archivedAt && intent !== 'restore') score += 0.25;
+      return { habit, score };
+    })
+    .filter((item) => item.score > 0)
+    .sort((left, right) => right.score - left.score);
+
+  if (!scored.length) {
+    return [];
+  }
+
+  const bestScore = scored[0].score;
+  return scored.filter((item) => item.score >= bestScore - 1).map((item) => item.habit).slice(0, 4);
+}
+
+function applyModelFieldsToDraft(baseDraft: HabitFormDraft, fields: ModelDraftFields | undefined, now: Date) {
+  const nextDraft = { ...baseDraft };
+  if (!fields) {
+    return nextDraft;
+  }
 
   if (fields.name?.trim()) nextDraft.name = toTitleCase(fields.name.trim());
-  if (fields.kind && ['yesNo', 'count', 'duration', 'negative'].includes(fields.kind)) nextDraft.kind = fields.kind;
+  if (fields.kind) nextDraft.kind = fields.kind;
   if (fields.category?.trim()) nextDraft.category = toTitleCase(fields.category.trim());
+  if (fields.icon && HABIT_ICONS.includes(fields.icon)) nextDraft.icon = fields.icon;
+  if (fields.color && HABIT_COLORS.includes(fields.color)) nextDraft.color = fields.color;
   if (typeof fields.targetValue === 'number' && Number.isFinite(fields.targetValue)) nextDraft.targetValue = String(fields.targetValue);
-  if (fields.unit?.trim()) nextDraft.unit = fields.unit.trim().toLowerCase();
-  if (fields.scheduleKind && isScheduleKind(fields.scheduleKind)) nextDraft.scheduleKind = fields.scheduleKind;
-  if (Array.isArray(fields.weekdays) && fields.weekdays.length) {
-    nextDraft.weekdays = Array.from(new Set(fields.weekdays.filter((day) => day >= 0 && day <= 6))).sort();
-  }
+  if (fields.unit?.trim()) nextDraft.unit = fields.unit.trim();
+  if (fields.scheduleKind) nextDraft.scheduleKind = fields.scheduleKind;
+  if (Array.isArray(fields.weekdays) && fields.weekdays.length) nextDraft.weekdays = fields.weekdays.filter((day) => day >= 0 && day <= 6);
   if (typeof fields.cadenceCount === 'number' && Number.isFinite(fields.cadenceCount)) nextDraft.cadenceCount = String(fields.cadenceCount);
   if (typeof fields.intervalDays === 'number' && Number.isFinite(fields.intervalDays)) nextDraft.intervalDays = String(fields.intervalDays);
-
-  const startDate = coerceDateKey(fields.startDate, now);
-  if (startDate) nextDraft.startDate = startDate;
-  if (fields.endDate === '') {
-    nextDraft.endDate = '';
-  } else {
-    const endDate = coerceDateKey(fields.endDate, now);
-    if (endDate) nextDraft.endDate = endDate;
-  }
-
+  if (fields.startDate) nextDraft.startDate = normalizeDateKey(fields.startDate, fields.startDate, now) ?? format(now, 'yyyy-MM-dd');
+  if (typeof fields.endDate === 'string') nextDraft.endDate = fields.endDate;
   if (typeof fields.reminderEnabled === 'boolean') nextDraft.reminderEnabled = fields.reminderEnabled;
-  const reminderTime = coerceTime(fields.reminderTime);
-  if (reminderTime) {
-    nextDraft.reminderEnabled = true;
-    nextDraft.reminderTime = reminderTime;
+  if (fields.reminderTime) nextDraft.reminderTime = fields.reminderTime;
+  if (fields.description !== undefined) nextDraft.description = fields.description;
+  if (fields.motivationalNote !== undefined) nextDraft.motivationalNote = fields.motivationalNote;
+
+  if ((nextDraft.kind === 'count' || nextDraft.kind === 'duration') && !nextDraft.unit.trim()) {
+    nextDraft.unit = nextDraft.kind === 'duration' ? 'minutes' : 'count';
   }
 
-  const icon = coerceIcon(fields.icon);
-  if (icon) nextDraft.icon = icon;
-  const color = coerceColor(fields.color);
-  if (color) nextDraft.color = color;
+  if (!nextDraft.startDate) {
+    nextDraft.startDate = format(now, 'yyyy-MM-dd');
+  }
 
   return nextDraft;
 }
 
-function summarizeDraft(draft: HabitFormDraft) {
-  const schedule = formatDraftSchedule(draft);
-  const target =
-    draft.kind === 'count' || draft.kind === 'duration'
-      ? `${draft.targetValue || '1'} ${draft.unit || (draft.kind === 'duration' ? 'minutes' : 'times')}`
-      : 'simple check-in';
-  return [
-    `- Name: ${draft.name}`,
-    `- Type: ${draft.kind}`,
-    `- Target: ${target}`,
-    `- Schedule: ${schedule}`,
-    `- Reminder: ${draft.reminderEnabled ? draft.reminderTime : 'Off'}`,
-    `- Category: ${draft.category}`,
-  ];
-}
+function inferModifyFieldsFromText(interpretedText: string, habit: Habit, now: Date): ModelDraftFields {
+  const fields: ModelDraftFields = {};
+  const lower = interpretedText.toLowerCase();
+  const number = extractNumber(interpretedText);
 
-function summarizeDraftDiff(previous: HabitFormDraft, next: HabitFormDraft) {
-  const changes: string[] = [];
-  if (previous.name !== next.name) changes.push(`- Name: ${previous.name} -> ${next.name}`);
-  if (previous.kind !== next.kind) changes.push(`- Type: ${previous.kind} -> ${next.kind}`);
-  if (previous.targetValue !== next.targetValue || previous.unit !== next.unit) {
-    changes.push(
-      `- Target: ${previous.targetValue || 'none'} ${previous.unit || ''}`.trimEnd() +
-        ` -> ${next.targetValue || 'none'} ${next.unit || ''}`.trimEnd(),
-    );
-  }
-  if (formatDraftSchedule(previous) !== formatDraftSchedule(next)) {
-    changes.push(`- Schedule: ${formatDraftSchedule(previous)} -> ${formatDraftSchedule(next)}`);
-  }
-  if (previous.reminderEnabled !== next.reminderEnabled || previous.reminderTime !== next.reminderTime) {
-    changes.push(
-      `- Reminder: ${previous.reminderEnabled ? previous.reminderTime : 'Off'} -> ${next.reminderEnabled ? next.reminderTime : 'Off'}`,
-    );
-  }
-  if (previous.category !== next.category) changes.push(`- Category: ${previous.category} -> ${next.category}`);
-  if (previous.icon !== next.icon) changes.push(`- Icon: ${previous.icon} -> ${next.icon}`);
-  if (previous.color !== next.color) changes.push('- Color updated');
-  if (previous.startDate !== next.startDate) changes.push(`- Start date: ${previous.startDate} -> ${next.startDate}`);
-  if (previous.endDate !== next.endDate) changes.push(`- End date: ${previous.endDate || 'none'} -> ${next.endDate || 'none'}`);
-  return changes;
-}
-
-function formatDraftSchedule(draft: HabitFormDraft) {
-  const schedule: HabitSchedule =
-    draft.scheduleKind === 'weekdays'
-      ? { kind: 'weekdays', weekdays: draft.weekdays }
-      : draft.scheduleKind === 'timesPerWeek'
-        ? { kind: 'timesPerWeek', count: Number(draft.cadenceCount) || 1 }
-        : draft.scheduleKind === 'timesPerMonth'
-          ? { kind: 'timesPerMonth', count: Number(draft.cadenceCount) || 1 }
-          : draft.scheduleKind === 'interval'
-            ? { kind: 'interval', everyDays: Number(draft.intervalDays) || 1 }
-            : { kind: 'daily' };
-  return formatScheduleLabel(schedule);
-}
-
-function getExplicitHabitName(input: string) {
-  const quoted = input.match(/["']([^"']+)["']/);
-  if (quoted?.[1]) {
-    return toTitleCase(quoted[1].trim());
-  }
-
-  const namePatterns = [
-    /(?:create|add|start)\s+(?:a\s+|an\s+|my\s+)?(.+?)(?:\s+(?:habit|tracker))?(?:\s+(?:for|with|every|daily|at)\b|$)/i,
-    /remind me to\s+(.+?)(?:\s+(?:at|every|daily|on)\b|$)/i,
-    /change\s+(?:my\s+)?(.+?)(?:\s+habit)?\s+to\b/i,
-    /update\s+(?:my\s+)?(.+?)(?:\s+habit)?\s+to\b/i,
-    /modify\s+(?:my\s+)?(.+?)(?:\s+habit)?\s+to\b/i,
-  ];
-
-  for (const pattern of namePatterns) {
-    const match = input.match(pattern);
-    const candidate = match?.[1]?.trim();
-    if (candidate) {
-      return toTitleCase(candidate.replace(/\b(my|a|an)\b/gi, '').trim());
+  if (/\b(reminder|alarm)\b/.test(lower)) {
+    const reminderTime = extractTime(interpretedText);
+    if (reminderTime) {
+      fields.reminderEnabled = true;
+      fields.reminderTime = reminderTime;
     }
   }
 
-  return '';
-}
-
-function extractReminderTime(text: string) {
-  const timeMatch = text.match(/\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/);
-  if (!timeMatch) {
-    return '';
+  if (habit.kind !== 'yesNo' && habit.kind !== 'negative' && typeof number === 'number') {
+    fields.targetValue = number;
   }
 
-  let hour = Number(timeMatch[1]);
-  const minute = Number(timeMatch[2] ?? '0');
-  const meridiem = timeMatch[3];
-  if (meridiem === 'pm' && hour < 12) hour += 12;
-  if (meridiem === 'am' && hour === 12) hour = 0;
-  if (hour > 23 || minute > 59) return '';
-  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  if (/\b(daily|every day)\b/.test(lower)) fields.scheduleKind = 'daily';
+  if (/\b(weekdays|weekday)\b/.test(lower)) fields.scheduleKind = 'weekdays';
+  if (/\b(week|times per week)\b/.test(lower) && typeof number === 'number') {
+    fields.scheduleKind = 'timesPerWeek';
+    fields.cadenceCount = number;
+  }
+  if (/\b(month|times per month)\b/.test(lower) && typeof number === 'number') {
+    fields.scheduleKind = 'timesPerMonth';
+    fields.cadenceCount = number;
+  }
+  if (/\b(interval|every \d+ days?)\b/.test(lower) && typeof number === 'number') {
+    fields.scheduleKind = 'interval';
+    fields.intervalDays = number;
+  }
+
+  const dateMatch = normalizeDateKey(undefined, interpretedText, now, true);
+  if (dateMatch) {
+    fields.startDate = dateMatch;
+  }
+
+  return fields;
 }
 
-function inferCategory(text: string) {
-  if (/\bwater|sleep|meditat|wellness|health|walk|run|exercise|gym\b/.test(text)) return 'Wellness';
-  if (/\bread|study|learn|course|book|write\b/.test(text)) return 'Learning';
-  if (/\bwork|deep work|focus|career|project\b/.test(text)) return 'Productivity';
-  if (/\bpray|gratitude|journal|mindful\b/.test(text)) return 'Mindset';
-  return '';
+function summarizeDraft(draft: HabitFormDraft) {
+  const bits = [friendlyKindLabel(draft.kind)];
+  if (draft.targetValue) bits.push(`${draft.targetValue} ${draft.unit}`.trim());
+  bits.push(summarizeDraftSchedule(draft));
+  if (draft.reminderEnabled && draft.reminderTime) bits.push(`reminder at ${draft.reminderTime}`);
+  return bits.filter(Boolean);
 }
 
-function inferVisuals(text: string, category: string): [string, string] {
-  if (/\bwater|drink\b/.test(text)) return ['drop', HABIT_COLORS[1]];
-  if (/\bread|book|study|learn\b/.test(text)) return ['book', HABIT_COLORS[0]];
-  if (/\bsleep|night\b/.test(text)) return ['moon', HABIT_COLORS[4]];
-  if (/\bheart|gratitude|mindful\b/.test(text)) return ['heart', HABIT_COLORS[4]];
-  if (/\bexercise|run|workout|gym|energy\b/.test(text)) return ['bolt', HABIT_COLORS[2]];
-  if (category === 'Wellness') return ['leaf', HABIT_COLORS[1]];
-  return [HABIT_ICONS[0], HABIT_COLORS[0]];
+function summarizeDraftChanges(habit: Habit, draft: HabitFormDraft) {
+  const changes: string[] = [];
+  if (draft.name !== habit.name) changes.push(`rename to ${draft.name}`);
+  if (draft.kind !== habit.kind) changes.push(`switch to ${friendlyKindLabel(draft.kind)}`);
+  if ((draft.targetValue || '') !== String(habit.targetValue ?? '')) changes.push(`target ${draft.targetValue} ${draft.unit}`.trim());
+  if ((draft.unit || '') !== (habit.unit ?? '') && draft.unit) changes.push(`unit ${draft.unit}`);
+  if (draft.scheduleKind !== habit.schedule.kind || summarizeDraftSchedule(draft) !== summarizeSchedule(habit)) changes.push(summarizeDraftSchedule(draft));
+  if (draft.reminderEnabled !== habit.reminders.some((reminder) => reminder.enabled) || draft.reminderTime !== (habit.reminders[0]?.time ?? '08:00')) {
+    changes.push(draft.reminderEnabled ? `reminder at ${draft.reminderTime}` : 'remove reminder');
+  }
+  if (draft.category !== habit.category) changes.push(`category ${draft.category}`);
+  return changes;
 }
 
-function toTitleCase(value: string) {
-  return value
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-    .join(' ');
+function summarizeSchedule(habit: Habit) {
+  switch (habit.schedule.kind) {
+    case 'daily':
+      return 'daily';
+    case 'weekdays':
+      return `weekdays ${habit.schedule.weekdays.join(',')}`;
+    case 'timesPerWeek':
+      return `${habit.schedule.count} times per week`;
+    case 'timesPerMonth':
+      return `${habit.schedule.count} times per month`;
+    case 'interval':
+      return `every ${habit.schedule.everyDays} days`;
+    default:
+      return 'custom';
+  }
 }
 
-function normalizeIntent(value?: string): AiIntent {
-  switch ((value ?? '').toLowerCase()) {
+function summarizeDraftSchedule(draft: HabitFormDraft) {
+  switch (draft.scheduleKind) {
+    case 'daily':
+      return 'daily';
+    case 'weekdays':
+      return `weekdays ${draft.weekdays.join(',')}`;
+    case 'timesPerWeek':
+      return `${draft.cadenceCount} times per week`;
+    case 'timesPerMonth':
+      return `${draft.cadenceCount} times per month`;
+    case 'interval':
+      return `every ${draft.intervalDays} days`;
+    default:
+      return 'custom';
+  }
+}
+
+function normalizeIntent(intent?: string): AiIntent {
+  switch ((intent ?? '').toLowerCase()) {
     case 'create':
     case 'modify':
     case 'delete':
@@ -1084,324 +1023,104 @@ function normalizeIntent(value?: string): AiIntent {
     case 'note':
     case 'summary':
     case 'recommendation':
-      return value!.toLowerCase() as AiIntent;
+      return intent!.toLowerCase() as AiIntent;
     default:
       return 'unknown';
   }
 }
 
-function normalizeText(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+function normalizeInput(input: string) {
+  return input.trim().replace(/\s+/g, ' ');
 }
 
-function matchHabits(
-  habits: Habit[],
-  habitName: string,
-  interpretedText: string,
-  intent?: AiIntent,
-  selectedHabitId?: string,
-) {
-  if (selectedHabitId) {
-    return habits.filter((habit) => habit.id === selectedHabitId);
+function extractJsonObject(value: string) {
+  const match = value.match(/\{[\s\S]*\}/);
+  return match?.[0] ?? null;
+}
+
+function extractNumber(value: string) {
+  const match = value.match(/-?\d+(\.\d+)?/);
+  return match ? Number(match[0]) : undefined;
+}
+
+function extractTime(value: string) {
+  const match = value.match(/\b(\d{1,2}):(\d{2})\b/);
+  if (!match) {
+    return undefined;
+  }
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) {
+    return undefined;
+  }
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function extractTrailingText(value: string) {
+  const parts = value.split(/note|journal/i);
+  return parts.length > 1 ? parts.slice(1).join(' ').trim().replace(/^[:\-]\s*/, '') : undefined;
+}
+
+function normalizeDateKey(explicitDate: string | undefined, sourceText: string, now: Date, allowEmpty = false) {
+  const direct = explicitDate?.match(/^\d{4}-\d{2}-\d{2}$/)?.[0];
+  if (direct) {
+    return direct;
   }
 
-  const normalizedName = normalizeText(habitName);
-  const normalizedText = normalizeText(interpretedText);
-  const pool =
-    intent === 'restore' ? habits.filter((habit) => habit.archivedAt) : habits;
-
-  const scored = pool
-    .map((habit) => {
-      const normalizedHabit = normalizeText(habit.name);
-      let score = 0;
-
-      if (normalizedName && normalizedHabit === normalizedName) score += 100;
-      if (normalizedText.includes(normalizedHabit)) score += 80;
-      if (normalizedName && normalizedHabit.includes(normalizedName)) score += 40;
-      if (normalizedName && normalizedName.includes(normalizedHabit)) score += 40;
-
-      const habitTokens = normalizedHabit.split(' ').filter((token) => token.length > 2);
-      const textTokens = new Set(normalizedText.split(' ').filter((token) => token.length > 2));
-      score += habitTokens.filter((token) => textTokens.has(token)).length * 8;
-
-      if (!habit.archivedAt && intent !== 'restore') score += 1;
-      return { habit, score };
-    })
-    .filter((entry) => entry.score > 0)
-    .sort((left, right) => right.score - left.score);
-
-  if (!scored.length) {
-    return [];
+  const text = sourceText.toLowerCase();
+  if (text.includes('yesterday')) {
+    return format(subDays(now, 1), 'yyyy-MM-dd');
+  }
+  if (text.includes('tomorrow')) {
+    return format(addDays(now, 1), 'yyyy-MM-dd');
+  }
+  if (text.includes('today')) {
+    return format(now, 'yyyy-MM-dd');
   }
 
-  const bestScore = scored[0].score;
-  return scored
-    .filter((entry) => entry.score >= Math.max(bestScore - 10, 40))
-    .map((entry) => entry.habit);
-}
-
-function resolveActionDate(interpretedText: string, now: Date, explicitDate?: string) {
-  return coerceDateKey(explicitDate, now) ?? extractRelativeDateKey(interpretedText, now) ?? format(now, 'yyyy-MM-dd');
-}
-
-function extractRelativeDateKey(text: string, now: Date) {
-  const lowered = text.toLowerCase();
-  if (/\byesterday\b/.test(lowered)) return format(subDays(now, 1), 'yyyy-MM-dd');
-  if (/\btomorrow\b/.test(lowered)) return format(addDays(now, 1), 'yyyy-MM-dd');
-  if (/\btoday\b/.test(lowered)) return format(now, 'yyyy-MM-dd');
-
-  const isoMatch = lowered.match(/\b(20\d{2}-\d{2}-\d{2})\b/);
-  if (isoMatch?.[1]) return isoMatch[1];
-
-  const longDateMatch = lowered.match(/\b(?:on|for|starting|start|ended|end)\s+([a-z]+\s+\d{1,2}(?:,\s*\d{4})?)\b/i);
-  const parsed = longDateMatch?.[1] ? parseNaturalDate(longDateMatch[1], now) : '';
-  return parsed || '';
-}
-
-function extractStartDate(text: string, now: Date) {
-  const match = text.match(/\b(?:start|starting|begin|from)\s+([a-z0-9,\-\s]+)/i);
-  if (!match?.[1]) {
-    return '';
-  }
-  return parseNaturalDate(match[1], now);
-}
-
-function extractEndDate(text: string, now: Date) {
-  const match = text.match(/\b(?:until|through|ending|end on|end)\s+([a-z0-9,\-\s]+)/i);
-  if (!match?.[1]) {
-    return '';
-  }
-  return parseNaturalDate(match[1], now);
-}
-
-function parseNaturalDate(value: string, now: Date) {
-  const cleaned = value.trim().replace(/[.]/g, '');
-  const formats = ['yyyy-MM-dd', 'MMMM d yyyy', 'MMMM d, yyyy', 'MMM d yyyy', 'MMM d, yyyy', 'MMMM d', 'MMM d'];
-
-  for (const dateFormat of formats) {
-    const parsed = parse(cleaned, dateFormat, now);
-    if (isValid(parsed)) {
-      const yearless = !/\b\d{4}\b/.test(cleaned);
-      const resolved = yearless ? new Date(parsed.setFullYear(now.getFullYear())) : parsed;
-      return format(resolved, 'yyyy-MM-dd');
-    }
+  const isoLike = sourceText.match(/\b\d{4}-\d{2}-\d{2}\b/);
+  if (isoLike) {
+    return isoLike[0];
   }
 
-  return '';
-}
-
-function coerceDateKey(value: string | undefined, now: Date) {
-  if (!value?.trim()) return '';
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) return value.trim();
-  return parseNaturalDate(value, now);
-}
-
-function coerceTime(value: string | undefined) {
-  if (!value?.trim()) return '';
-  const match = value.trim().match(/^(\d{1,2}):(\d{2})$/);
-  if (!match) return '';
-  const hour = Number(match[1]);
-  const minute = Number(match[2]);
-  if (hour > 23 || minute > 59) return '';
-  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-}
-
-function isScheduleKind(value: string): value is HabitFormDraft['scheduleKind'] {
-  return ['daily', 'weekdays', 'timesPerWeek', 'timesPerMonth', 'interval'].includes(value);
-}
-
-function coerceIcon(value?: string) {
-  if (!value) return '';
-  const normalized = value.toLowerCase().trim();
-  const aliasMap: Record<string, string> = {
-    droplets: 'drop',
-    water: 'drop',
-    book: 'book',
-    reading: 'book',
-    sleep: 'moon',
-    moon: 'moon',
-    workout: 'bolt',
-    fitness: 'bolt',
-    journal: 'sparkles',
-    meditation: 'leaf',
-  };
-  const nextIcon = aliasMap[normalized] ?? normalized;
-  return HABIT_ICONS.includes(nextIcon) ? nextIcon : '';
-}
-
-function coerceColor(value?: string) {
-  if (!value) return '';
-  const normalized = value.toLowerCase().trim();
-  const aliasMap: Record<string, string> = {
-    blue: HABIT_COLORS[0],
-    green: HABIT_COLORS[1],
-    teal: HABIT_COLORS[1],
-    orange: HABIT_COLORS[2],
-    red: HABIT_COLORS[3],
-    purple: HABIT_COLORS[4],
-    yellow: HABIT_COLORS[5],
-    amber: HABIT_COLORS[5],
-  };
-  return HABIT_COLORS.includes(normalized) ? normalized : aliasMap[normalized] ?? '';
-}
-
-function extractNumericValue(text: string) {
-  const match = text.match(/(\d+(?:\.\d+)?)/);
-  if (!match?.[1]) return null;
-  const value = Number(match[1]);
-  return Number.isFinite(value) ? value : null;
-}
-
-function extractNoteText(text: string, habitName: string) {
-  const noteAfterColon = text.match(/:\s*(.+)$/);
-  if (noteAfterColon?.[1]) {
-    return noteAfterColon[1].trim();
-  }
-
-  const stripped = text
-    .replace(new RegExp(habitName, 'ig'), '')
-    .replace(/\b(add|save|note|journal|for|to|today|yesterday|tomorrow)\b/gi, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  return stripped;
+  return allowEmpty ? undefined : format(now, 'yyyy-MM-dd');
 }
 
 function friendlyDateLabel(dateKey: string, now: Date) {
-  if (dateKey === format(now, 'yyyy-MM-dd')) return 'today';
-  if (dateKey === format(subDays(now, 1), 'yyyy-MM-dd')) return 'yesterday';
-  if (dateKey === format(addDays(now, 1), 'yyyy-MM-dd')) return 'tomorrow';
-  return dateKey;
-}
-
-function extractJsonObject(text: string) {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]+?)```/i);
-  if (fenced?.[1]) {
-    return fenced[1].trim();
-  }
-
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start >= 0 && end > start) {
-    return text.slice(start, end + 1);
-  }
-
-  return '';
-}
-
-function lifecycleVerb(intent: 'delete' | 'archive' | 'restore') {
-  switch (intent) {
-    case 'delete':
-      return 'Delete habit';
-    case 'archive':
-      return 'Archive habit';
-    case 'restore':
-      return 'Restore habit';
+  const todayKey = format(now, 'yyyy-MM-dd');
+  const yesterdayKey = format(subDays(now, 1), 'yyyy-MM-dd');
+  const tomorrowKey = format(addDays(now, 1), 'yyyy-MM-dd');
+  if (dateKey === todayKey) return 'today';
+  if (dateKey === yesterdayKey) return 'yesterday';
+  if (dateKey === tomorrowKey) return 'tomorrow';
+  try {
+    return format(parseISO(dateKey), 'MMM d');
+  } catch {
+    return dateKey;
   }
 }
 
-async function buildAssistantTextFromPreview(
-  preview: AiCommandPreview,
-  habits: Habit[],
-  logs: HabitLog[],
-  options: AssistantConversationOptions,
-) {
-  if (preview.status === 'needs-clarification') {
-    if (preview.disambiguationOptions?.length) {
-      return `${preview.preview} I can show the closest matches below so you can pick the right one quickly.`;
-    }
-    return preview.preview;
-  }
-
-  if (preview.execution) {
-    return buildNaturalConfirmationText(preview);
-  }
-
-  return buildConversationalReply(preview, habits, logs, options);
+function toTitleCase(value: string) {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
 }
 
-function buildNaturalConfirmationText(preview: AiCommandPreview) {
-  switch (preview.intent) {
-    case 'create':
-      return 'I put together a new habit draft for you. Review it below, and confirm only if it looks right.';
-    case 'modify':
-      return 'I mapped the update I think you want. Check the changes below, then confirm when they look correct.';
-    case 'complete':
-      return 'I found the completion update. Confirm it below and I will mark it done.';
-    case 'delete':
-      return preview.destructiveSuggestion
-        ? `I found the delete request. ${preview.destructiveSuggestion} If you still want to remove it, confirm below.`
-        : 'I found the delete request. Please confirm below before I remove anything.';
-    case 'archive':
-      return 'I prepared the archive action. Confirm below if you want me to move it out of your active habits.';
-    case 'restore':
-      return 'I found the restore action. Confirm below if you want it back in your active habits.';
-    case 'skip':
-      return 'I found the skip update. Confirm below if that is the right day and habit.';
-    case 'log':
-      return 'I prepared the progress update. Confirm below and I will save it.';
-    case 'note':
-      return 'I captured the note you want to save. Confirm below and I will add it to the right day.';
+function capitalize(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function friendlyKindLabel(kind: HabitKind) {
+  switch (kind) {
+    case 'count':
+      return 'count goal';
+    case 'duration':
+      return 'duration goal';
+    case 'negative':
+      return 'avoidance habit';
     default:
-      return 'I understood the action. Review the details below, then confirm if you want me to continue.';
+      return 'yes/no habit';
   }
-}
-
-async function buildConversationalReply(
-  preview: AiCommandPreview,
-  habits: Habit[],
-  logs: HabitLog[],
-  options: AssistantConversationOptions,
-) {
-  if (preview.intent === 'summary' || preview.intent === 'recommendation') {
-    const prompt = [
-      `User request: ${preview.interpretedText}`,
-      `Structured preview: ${preview.preview}`,
-      `Active habits: ${JSON.stringify(habits.filter((habit) => !habit.archivedAt).slice(0, 20).map((habit) => ({
-        name: habit.name,
-        category: habit.category,
-        kind: habit.kind,
-        targetValue: habit.targetValue ?? null,
-        unit: habit.unit ?? '',
-      })))}`,
-      `Recent logs: ${JSON.stringify(logs.slice(-60))}`,
-      `Conversation history: ${JSON.stringify((options.conversationHistory ?? []).slice(-6))}`,
-      'Reply like a thoughtful in-app coach. Keep it short, warm, and practical.',
-    ].join('\n\n');
-
-    try {
-      return await generateGeminiText(prompt, {
-        systemInstruction:
-          preview.intent === 'summary'
-            ? 'You are a concise in-app habit coach summarizing the user progress with empathy and specifics from the provided data only.'
-            : 'You are a concise in-app habit coach giving practical suggestions grounded in the provided habit data only.',
-      });
-    } catch {
-      return preview.preview;
-    }
-  }
-
-  if (preview.intent === 'unknown') {
-    const prompt = [
-      `User message: ${preview.interpretedText}`,
-      `Conversation history: ${JSON.stringify((options.conversationHistory ?? []).slice(-8))}`,
-      `Active habits: ${JSON.stringify(habits.filter((habit) => !habit.archivedAt).slice(0, 16).map((habit) => ({
-        name: habit.name,
-        category: habit.category,
-        kind: habit.kind,
-      })))}`,
-      'Reply as a real conversational AI habit assistant. Be helpful, short, friendly, and suggest concrete next steps when useful. Do not invent actions or claim data changed.',
-    ].join('\n\n');
-
-    try {
-      return await generateGeminiText(prompt, {
-        systemInstruction:
-          'You are HabitAI, a mobile habit assistant. Answer naturally, stay practical, and keep replies concise enough for a chat bubble.',
-      });
-    } catch {
-      return 'I can help you plan habits, adjust existing ones, explain your progress, or turn an idea into a habit. Tell me what you want to work on.';
-    }
-  }
-
-  return preview.preview;
 }

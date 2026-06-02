@@ -38,6 +38,8 @@
 - Replaced Assistant placeholder with a shared voice/chat assistant flow, multi-turn clarification, confirmation-first action previews, and local AI command history tracking
 - Added local Assistant execution for confirmed create, modify, complete, and delete actions in the new unified flow
 - Integrated `expo-speech-recognition` and `expo-speech` for live transcript capture, spoken assistant replies, microphone permissions, and voice/chat continuity in Assistant
+- Upgraded Assistant into a more open conversational coach/action planner using Gemini for grounded coaching and structured safe previews, with local confirmation-first execution
+- Added a Groq Whisper cleanup seam using `whisper-large-v3-turbo` for final voice transcript cleanup after `expo-speech-recognition` live text, pending `EXPO_PUBLIC_GROQ_API_KEY`
 - Added local data export seam, privacy-safe telemetry helper, and confirmed local data reset/account-deletion flow
 - Added delete confirmation for habit detail destructive actions
 - Extended AMOLED/theme token support into shared stat cards, empty states, habit cards, and habit creation/edit forms
@@ -60,7 +62,7 @@
 ## Not Started
 - Firestore sync service integration
 - RevenueCat-backed purchase and entitlement refresh integration intentionally deferred
-- Remote AI intent parsing provider integration
+- Server-side AI gateway integration for production key protection
 - Full app-wide accessibility and contrast audit
 - Production privacy policy, terms, support, export, and account deletion implementations
 
@@ -71,7 +73,7 @@
 - Current architecture is intentionally local-first; Firebase, RevenueCat, and AI services are deferred until the manual tracking core is stable
 
 ## Current Caveats
-- Assistant tab now supports a real shared voice/chat conversation loop with live transcript, follow-up clarification, and confirmation-first local actions, but it still uses local-plus-Gemini helper logic rather than a dedicated backend AI action service
+- Assistant tab now supports a real shared voice/chat conversation loop with live transcript, optional Groq Whisper final cleanup, Gemini coaching/action planning, follow-up clarification, and confirmation-first local actions, but Gemini and Groq are still client-side `EXPO_PUBLIC_*` integrations until a server gateway is added
 - Reminders are implemented as a first pass and are strongest for daily or weekday habits; more complex schedule-aware reminder behavior still needs refinement
 - Theme preference and AMOLED support are implemented across shell, tabs, settings, assistant, shared stat/empty/habit cards, habit detail, and the refreshed create/edit habit forms; analytics and calendar still need final visual polish
 - Firebase Auth is wired for Android native Google Sign-In plus passwordless email-link sign-in; this is not a true numeric email OTP flow and may still need finalized authorized-domain/deep-link handling for production polish
@@ -84,6 +86,7 @@
 - Add Firestore sync and Cloud Functions seams
 - Keep premium checks local for now; do not add RevenueCat until subscriptions become a real release target
 - Connect backend AI intent parsing and server-side tool execution to the Assistant confirmation flow
+- Add `EXPO_PUBLIC_GROQ_API_KEY` when ready to enable Whisper final transcript cleanup on native devices that support persisted speech recordings
 - Add focused accessibility labels, dynamic-type checks, and non-color-only status labels across habit cards and analytics
 
 ## Last Updated
@@ -115,6 +118,7 @@
 - 2026-05-28: Fixed the Assistant tab route conflict so the nav opens the fullscreen Assistant screen directly, hides the bottom tab bar while active, and closes back to Today
 - 2026-05-28: Restored a visible path from fullscreen Assistant chat back to voice mode by keeping the voice/chat toggle available in chat and moving new-chat reset into a separate top-right action
 - 2026-05-28: Removed the Assistant voice screen's seeded demo transcript, added empty/listening states, kept only live spoken words in the transcript area, and replaced the custom bottom glyph with a proper mic icon
+- 2026-06-02: Tightened the Settings screen scale and wired its background, cards, rows, controls, and selected theme state into shared theme tokens so Light, Dark, and AMOLED visibly apply on the screen
 - 2026-05-28: Kept spoken user transcript visible above the agent response on the fullscreen Assistant voice screen, added spoken assistant replies via `expo-speech`, and reduced the mic button/icon size
 - 2026-05-28: Made fullscreen Assistant voice text ephemeral by auto-clearing the visible user transcript and agent reply about 5 seconds after each update, so the screen resets itself between turns
 - 2026-05-28: Smoothed the fullscreen Assistant voice reset with a short fade-out on both transcript and agent reply before they clear
@@ -122,3 +126,4 @@
 - 2026-05-30: Rebuilt the Assistant screen into one shared voice/chat assistant with persistent conversation history, live voice transcript, spoken AI replies, clarification loops, and explicit confirmation cards for create/modify/complete/delete actions
 - 2026-05-30: Refined the auth screen into a more mobile-native entry experience with stronger hierarchy, benefit chips, clearer Google-vs-guest guidance, and better accessibility/loading/error states
 - 2026-05-30: Reworked the auth screen again into a cleaner two-zone mobile composition with a stronger preview panel, segmented habit-mode storytelling, and a more intentional action sheet
+- 2026-06-02: Added the Analytics-style weekly trend chart to each individual habit detail screen, scoped to that habit's real schedule and logs with no mocked trend data
