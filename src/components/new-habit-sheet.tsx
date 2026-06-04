@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ReminderTimePopup } from '@/src/components/reminder-time-popup';
 import { createDefaultDraft, HABIT_COLORS, HABIT_ICONS } from '@/src/domain/habits';
 import { useAppStore } from '@/src/store/app-store';
 import { useThemeTokens } from '@/src/theme/colors';
@@ -332,12 +333,12 @@ export function NewHabitSheet({ visible, onClose }: NewHabitSheetProps) {
             </View>
 
             {reminderOpen ? (
-              <ReminderPopup
-                draft={draft}
+              <ReminderTimePopup
+                initialTime={draft.reminderTime || '08:00'}
                 inputSurface={inputSurface}
                 onCancel={() => setReminderOpen(false)}
-                onConfirm={(next) => {
-                  setDraft(next);
+                onConfirm={(time) => {
+                  setDraft((currentDraft) => ({ ...currentDraft, reminderEnabled: true, reminderTime: time }));
                   setReminderOpen(false);
                 }}
               />
@@ -357,93 +358,6 @@ export function NewHabitSheet({ visible, onClose }: NewHabitSheetProps) {
         </KeyboardAvoidingView>
       </View>
     </Modal>
-  );
-}
-
-function ReminderPopup({
-  draft,
-  inputSurface,
-  onCancel,
-  onConfirm,
-}: {
-  draft: HabitFormDraft;
-  inputSurface: string;
-  onCancel: () => void;
-  onConfirm: (nextDraft: HabitFormDraft) => void;
-}) {
-  const tokens = useThemeTokens();
-  const isLight = tokens.mode === 'light';
-  const [time, setTime] = useState(draft.reminderTime || '08:00');
-  const [activeTimePart, setActiveTimePart] = useState<'hour' | 'minute' | null>(null);
-  const [hour, minute] = normalizeTimeParts(time);
-
-  function confirmTime() {
-    onConfirm({ ...draft, reminderEnabled: true, reminderTime: normalizeTime(time) });
-  }
-
-  return (
-    <View style={styles.popupLayer}>
-      <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: isLight ? 'rgba(16,24,40,0.28)' : 'rgba(0,0,0,0.58)' }]} onPress={onCancel} />
-      <View style={[styles.reminderCard, { backgroundColor: isLight ? '#ffffff' : tokens.surface, borderColor: isLight ? '#e1e7f0' : tokens.border }]}>
-        <Text style={[styles.popupTitle, { color: tokens.text }]}>Enter time</Text>
-        <View style={styles.timeDisplay}>
-          <View>
-            <TextInput
-              accessibilityLabel="Reminder hour"
-              keyboardType="numeric"
-              maxLength={2}
-              value={hour}
-              onFocus={() => setActiveTimePart('hour')}
-              onBlur={() => setActiveTimePart(null)}
-              onChangeText={(nextHour) => setTime(`${nextHour}:${minute}`)}
-              style={[
-                styles.timeBox,
-                activeTimePart === 'hour' ? styles.activeTimeBox : null,
-                {
-                  backgroundColor: isLight ? '#ffffff' : '#f8fafc',
-                  borderColor: activeTimePart === 'hour' ? (isLight ? '#2f231d' : tokens.primary) : 'transparent',
-                  color: '#10243e',
-                },
-              ]}
-            />
-            <Text style={[styles.timeHint, { color: tokens.text }]}>Hour</Text>
-          </View>
-          <Text style={[styles.timeSeparator, { color: tokens.text }]}>:</Text>
-          <View>
-            <TextInput
-              accessibilityLabel="Reminder minute"
-              keyboardType="numeric"
-              maxLength={2}
-              value={minute}
-              onFocus={() => setActiveTimePart('minute')}
-              onBlur={() => setActiveTimePart(null)}
-              onChangeText={(nextMinute) => setTime(`${hour}:${nextMinute}`)}
-              style={[
-                styles.timeBox,
-                activeTimePart === 'minute' ? styles.activeTimeBox : null,
-                {
-                  backgroundColor: isLight ? inputSurface : '#f8fafc',
-                  borderColor: activeTimePart === 'minute' ? (isLight ? '#2f231d' : tokens.primary) : 'transparent',
-                  color: '#10243e',
-                },
-              ]}
-            />
-            <Text style={[styles.timeHint, { color: tokens.text }]}>Minute</Text>
-          </View>
-        </View>
-
-        <View style={styles.popupActions}>
-          <View style={styles.popupActionGroup}>
-            <Pressable onPress={onCancel} style={styles.popupTextAction}>
-              <Text style={[styles.popupActionText, { color: tokens.text }]}>Cancel</Text>
-            </Pressable>
-            <Pressable onPress={confirmTime} style={styles.popupTextAction}>
-              <Text style={[styles.popupActionText, { color: tokens.text }]}>OK</Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
-    </View>
   );
 }
 
@@ -623,18 +537,6 @@ function applyRepeatMode(draft: HabitFormDraft, mode: 'daily' | 'weekdays' | 'cu
     scheduleKind: 'weekdays',
     weekdays: currentMode === 'custom' && draft.weekdays.length ? draft.weekdays : [1, 3, 5],
   };
-}
-
-function normalizeTimeParts(value: string) {
-  const [rawHour = '08', rawMinute = '00'] = value.split(':');
-  return [rawHour.replace(/\D/g, '').slice(0, 2), rawMinute.replace(/\D/g, '').slice(0, 2)];
-}
-
-function normalizeTime(value: string) {
-  const [rawHour, rawMinute] = normalizeTimeParts(value);
-  const hour = Math.min(Math.max(Number(rawHour) || 0, 0), 23);
-  const minute = Math.min(Math.max(Number(rawMinute) || 0, 0), 59);
-  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
 
 const styles = StyleSheet.create({

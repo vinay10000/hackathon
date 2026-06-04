@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:layout_width="match_parent"
+  android:layout_height="84dp"
+  android:background="@drawable/habit_widget_picker_row"
+  android:gravity="center_vertical"
+  android:orientation="horizontal"
+  android:paddingStart="20dp"
+  android:paddingEnd="16dp">
+
+  <TextView
+    android:id="@+id/habit_picker_dot"
+    android:layout_width="18dp"
+    android:layout_height="18dp"
+    android:background="@drawable/habit_widget_dot"
+    android:gravity="center" />
+
+  <LinearLayout
+    android:layout_width="0dp"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="18dp"
+    android:layout_weight="1"
+    android:orientation="vertical">
+
+    <TextView
+      android:id="@+id/habit_picker_name"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:ellipsize="end"
+      android:maxLines="1"
+      android:textColor="#F8FAFC"
+      android:textSize="22sp"
+      android:textStyle="bold" />
+
+    <TextView
+      android:id="@+id/habit_picker_streak"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="2dp"
+      android:textColor="#7B8797"
+      android:textSize="16sp" />
+  </LinearLayout>
+
+  <TextView
+    android:layout_width="32dp"
+    android:layout_height="32dp"
+    android:gravity="center"
+    android:text="›"
+    android:textColor="#6B7280"
+    android:textSize="34sp" />
+</LinearLayout>

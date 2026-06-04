@@ -5,6 +5,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { useShallow } from 'zustand/react/shallow';
 
 import { calculateCompletionRate, calculateStreak, computeLogStatus, createId, getHabitLogForDate, habitFromDraft, isHabitScheduledForDate } from '@/src/domain/habits';
+import { rescheduleDailyReminder } from '@/src/lib/daily-reminder';
 import { clearNotificationIds, syncHabitReminderNotifications } from '@/src/lib/notifications';
 import { AiCommandHistoryItem, AppPreferences, Habit, HabitFormDraft, HabitLog, PremiumState, ThemePreference, UserSession } from '@/src/types/habits';
 
@@ -19,6 +20,7 @@ type AppState = {
   setHydrated: (value: boolean) => void;
   completeOnboarding: () => void;
   setNotificationPermission: (value: AppPreferences['notificationPermission']) => void;
+  saveDailyReminderPreference: (time: string, enabled: boolean) => Promise<void>;
   setTheme: (value: ThemePreference) => void;
   setAiEnabled: (value: boolean) => void;
   setMicrophonePermission: (value: AppPreferences['microphonePermission']) => void;
@@ -58,6 +60,9 @@ export const useAppStore = create<AppState>()(
         onboardingComplete: false,
         guestMode: true,
         notificationPermission: 'unknown',
+        dailyReminderEnabled: false,
+        dailyReminderTime: '20:00',
+        dailyReminderNotificationIds: [],
         theme: 'system',
         aiEnabled: true,
         microphonePermission: 'unknown',
@@ -90,6 +95,19 @@ export const useAppStore = create<AppState>()(
             notificationPermission: value,
           },
         })),
+      saveDailyReminderPreference: async (time, enabled) => {
+        const previousIds = get().preferences.dailyReminderNotificationIds;
+        const nextIds = await rescheduleDailyReminder(previousIds, time, enabled);
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            dailyReminderEnabled: enabled,
+            dailyReminderTime: time,
+            dailyReminderNotificationIds: nextIds,
+            notificationPermission: enabled ? 'granted' : state.preferences.notificationPermission,
+          },
+        }));
+      },
       setTheme: (value) =>
         set((state) => ({
           preferences: {

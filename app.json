@@ -36,6 +36,7 @@
     "plugins": [
       "expo-router",
       "expo-notifications",
+      "./plugins/android-habit-widget",
       "@react-native-google-signin/google-signin",
       [
         "expo-speech-recognition",

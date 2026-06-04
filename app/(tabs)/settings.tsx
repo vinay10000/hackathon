@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { Alert, Image, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ReminderTimePopup } from '@/src/components/reminder-time-popup';
 import { PROFILE_AVATARS } from '@/src/constants/profile';
 import { signOutOfFirebase } from '@/src/lib/auth';
 import { canScheduleNotifications, requestNotificationAccess } from '@/src/lib/notifications';
@@ -31,15 +33,14 @@ export default function SettingsScreen() {
   const premium = useAppStore((state) => state.premium);
   const habits = useAppStore((state) => state.habits);
   const logs = useAppStore((state) => state.logs);
+  const saveDailyReminderPreference = useAppStore((state) => state.saveDailyReminderPreference);
   const setProfile = useAppStore((state) => state.setProfile);
   const setTheme = useAppStore((state) => state.setTheme);
   const setNotificationPermission = useAppStore((state) => state.setNotificationPermission);
-  const setAiEnabled = useAppStore((state) => state.setAiEnabled);
-  const setTelemetryEnabled = useAppStore((state) => state.setTelemetryEnabled);
-  const setPremiumEntitlement = useAppStore((state) => state.setPremiumEntitlement);
   const continueAsGuest = useAppStore((state) => state.continueAsGuest);
   const markSynced = useAppStore((state) => state.markSynced);
   const resetLocalData = useAppStore((state) => state.resetLocalData);
+  const [dailyReminderOpen, setDailyReminderOpen] = useState(false);
 
   const contentWidth = Math.min(width - 32, 430);
   const selectedAvatar = PROFILE_AVATARS.find((avatar) => avatar.id === preferences.profileAvatarId) ?? PROFILE_AVATARS[0];
@@ -48,12 +49,16 @@ export default function SettingsScreen() {
 
   async function toggleNotifications(value: boolean) {
     if (!value) {
+      await saveDailyReminderPreference(preferences.dailyReminderTime, false);
       setNotificationPermission('denied');
       return;
     }
 
     const nextValue = await requestNotificationAccess();
     setNotificationPermission(nextValue);
+    if (nextValue === 'granted' && preferences.dailyReminderEnabled) {
+      await saveDailyReminderPreference(preferences.dailyReminderTime, true);
+    }
   }
 
   return (
@@ -91,13 +96,6 @@ export default function SettingsScreen() {
         >
           <View style={styles.header}>
             <Text style={[styles.title, { color: tokens.text }]}>Settings</Text>
-            <Pressable
-              accessibilityLabel="Search settings"
-              accessibilityRole="button"
-              style={[styles.searchButton, { backgroundColor: settingsPalette.control, borderColor: tokens.border }]}
-            >
-              <Ionicons name="search" size={22} color={tokens.text} />
-            </Pressable>
           </View>
 
           <GlassCard compact>
@@ -197,44 +195,19 @@ export default function SettingsScreen() {
             <InsetRow
               icon="time-outline"
               label="Daily reminder"
-              value={canScheduleNotifications() ? '8:00 PM' : 'Unavailable'}
-              onPress={() => toggleNotifications(true)}
+              value={canScheduleNotifications() ? toMeridiemTime(preferences.dailyReminderTime) : 'Unavailable'}
+              onPress={async () => {
+                if (preferences.notificationPermission !== 'granted') {
+                  const nextValue = await requestNotificationAccess();
+                  setNotificationPermission(nextValue);
+                  if (nextValue !== 'granted') {
+                    return;
+                  }
+                }
+                setDailyReminderOpen(true);
+              }}
             />
           </GlassCard>
-
-          <GlassCard>
-            <View style={styles.topRow}>
-              <CardHeading icon="hardware-chip-outline" iconColor="#25d7df" title="AI controls and privacy" subtitle="Manage HabitAI’s intelligence" />
-              <Ionicons name="chevron-forward" size={18} color="#9fafcf" />
-            </View>
-            <View style={styles.metricGrid}>
-              <MetricTile icon="shield-checkmark-outline" iconColor="#2bbef0" label="Data access" value={preferences.telemetryEnabled ? 'Enabled' : 'Limited'} onPress={() => setTelemetryEnabled(!preferences.telemetryEnabled)} />
-              <MetricTile icon="lock-closed-outline" iconColor="#31d58a" label="AI memory" value={preferences.aiEnabled ? 'On' : 'Off'} onPress={() => setAiEnabled(!preferences.aiEnabled)} />
-              <MetricTile icon="eye-off-outline" iconColor="#20d6ca" label="Personalization" value={preferences.telemetryEnabled ? 'On' : 'Off'} onPress={() => setTelemetryEnabled(!preferences.telemetryEnabled)} />
-            </View>
-          </GlassCard>
-
-          <LinearGradient
-            colors={settingsPalette.premiumGradient}
-            start={{ x: 0, y: 0.4 }}
-            end={{ x: 1, y: 0.6 }}
-            style={[styles.premiumCard, { borderColor: tokens.warning }]}
-          >
-            <View style={styles.goldSparkA} />
-            <View style={styles.goldSparkB} />
-            <CardHeading icon="diamond-outline" iconColor="#ffbc18" title="Premium" subtitle="Unlock advanced insights" />
-            <View style={styles.premiumRight}>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setPremiumEntitlement(premium.entitlement === 'premium' ? 'free' : 'premium')}
-                style={[styles.activePill, { borderColor: tokens.warning, backgroundColor: `${tokens.warning}16` }]}
-              >
-                <Ionicons name="sparkles" size={18} color={tokens.warning} />
-                <Text style={[styles.activePillText, { color: tokens.warning }]}>{premium.entitlement === 'premium' ? 'Active' : 'Upgrade'}</Text>
-              </Pressable>
-              <Ionicons name="chevron-forward" size={18} color={tokens.warning} />
-            </View>
-          </LinearGradient>
 
           <GlassCard>
             <View style={styles.topRow}>
@@ -278,6 +251,17 @@ export default function SettingsScreen() {
             <UtilityAction label="Sync check" onPress={markSynced} />
           </View>
         </ScrollView>
+        {dailyReminderOpen ? (
+          <ReminderTimePopup
+            initialTime={preferences.dailyReminderTime}
+            inputSurface={settingsPalette.input}
+            onCancel={() => setDailyReminderOpen(false)}
+            onConfirm={async (time) => {
+              await saveDailyReminderPreference(time, true);
+              setDailyReminderOpen(false);
+            }}
+          />
+        ) : null}
       </SafeAreaView>
     </View>
   );
@@ -348,37 +332,6 @@ function InsetRow({ icon, label, value, onPress }: { icon: IconName; label: stri
       <View style={styles.rowRight}>
         <Text style={[styles.rowValue, { color: tokens.primary }]}>{value}</Text>
         <Ionicons name="chevron-forward" size={17} color={tokens.textMuted} />
-      </View>
-    </Pressable>
-  );
-}
-
-function MetricTile({
-  icon,
-  iconColor,
-  label,
-  value,
-  onPress,
-}: {
-  icon: IconName;
-  iconColor: string;
-  label: string;
-  value: string;
-  onPress: () => void;
-}) {
-  const tokens = useThemeTokens();
-  const settingsPalette = getSettingsPalette(tokens);
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={[styles.metricTile, { backgroundColor: settingsPalette.input, borderColor: tokens.border }]}
-    >
-      <Ionicons name={icon} size={21} color={iconColor} />
-      <View>
-        <Text style={[styles.metricLabel, { color: tokens.textMuted }]}>{label}</Text>
-        <Text style={[styles.metricValue, { color: value === 'Limited' ? tokens.teal : tokens.success }]}>{value}</Text>
       </View>
     </Pressable>
   );
@@ -459,6 +412,14 @@ function getSettingsPalette(tokens: ThemeTokens) {
     selectedSoft: 'rgba(38,111,219,0.18)',
     premiumGradient: ['rgba(251,191,36,0.16)', 'rgba(11,18,30,0.94)', 'rgba(255,183,18,0.08)'] as const,
   };
+}
+
+function toMeridiemTime(value: string) {
+  const [hourText = '20', minute = '00'] = value.split(':');
+  const hour24 = Number.parseInt(hourText, 10) || 0;
+  const meridiem = hour24 >= 12 ? 'PM' : 'AM';
+  const hour12 = hour24 % 12 || 12;
+  return `${hour12}:${minute.padStart(2, '0')} ${meridiem}`;
 }
 
 const styles = StyleSheet.create({

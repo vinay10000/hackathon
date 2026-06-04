@@ -12,8 +12,8 @@ type TabIconName = React.ComponentProps<typeof Ionicons>['name'];
 const visibleTabs: Record<string, { label: string; icon: TabIconName }> = {
   today: { label: 'Today', icon: 'sunny' },
   calendar: { label: 'Calendar', icon: 'calendar' },
-  analytics: { label: 'Analytics', icon: 'stats-chart' },
   assistant: { label: 'Assistant', icon: 'sparkles' },
+  settings: { label: 'Settings', icon: 'settings-outline' },
 };
 
 export default function TabLayout() {
@@ -29,9 +29,8 @@ export default function TabLayout() {
     >
       <Tabs.Screen name="today" options={{ title: 'Today' }} />
       <Tabs.Screen name="calendar" options={{ title: 'Calendar' }} />
-      <Tabs.Screen name="analytics" options={{ title: 'Analytics' }} />
       <Tabs.Screen name="assistant" options={{ title: 'Assistant' }} />
-      <Tabs.Screen name="settings" options={{ href: null }} />
+      <Tabs.Screen name="settings" options={{ title: 'Settings' }} />
     </Tabs>
   );
 }

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+  android:configure="com.hackathon.habitai.widget.HabitWidgetConfigureActivity"
+  android:description="@string/habit_widget_description"
+  android:initialLayout="@layout/habit_widget"
+  android:minWidth="250dp"
+  android:minHeight="90dp"
+  android:previewLayout="@layout/habit_widget"
+  android:resizeMode="horizontal|vertical"
+  android:updatePeriodMillis="0"
+  android:widgetCategory="home_screen" />

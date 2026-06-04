@@ -96,6 +96,9 @@ export type AppPreferences = {
   onboardingComplete: boolean;
   guestMode: boolean;
   notificationPermission: 'unknown' | 'granted' | 'denied';
+  dailyReminderEnabled: boolean;
+  dailyReminderTime: string;
+  dailyReminderNotificationIds: string[];
   theme: ThemePreference;
   aiEnabled: boolean;
   microphonePermission: 'unknown' | 'granted' | 'denied';

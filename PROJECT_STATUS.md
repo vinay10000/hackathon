@@ -127,3 +127,4 @@
 - 2026-05-30: Refined the auth screen into a more mobile-native entry experience with stronger hierarchy, benefit chips, clearer Google-vs-guest guidance, and better accessibility/loading/error states
 - 2026-05-30: Reworked the auth screen again into a cleaner two-zone mobile composition with a stronger preview panel, segmented habit-mode storytelling, and a more intentional action sheet
 - 2026-06-02: Added the Analytics-style weekly trend chart to each individual habit detail screen, scoped to that habit's real schedule and logs with no mocked trend data
+- 2026-06-02: Added a native Android HabitAI home-screen widget via `plugins/android-habit-widget`: the picker uses the HabitAI theme/app name and real persisted habits, the compact card renders up to 10 weeks of real habit history, and the tick action writes today's completion log back to the same `habitai-store` AsyncStorage row.
