@@ -1,5 +1,6 @@
 import { FirebaseApp, getApp, getApps, initializeApp } from 'firebase/app';
 import { Auth, getAuth } from 'firebase/auth';
+import { Functions, getFunctions } from 'firebase/functions';
 
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
@@ -20,3 +21,4 @@ if (missingFirebaseKeys.length) {
 
 export const firebaseApp: FirebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const firebaseAuth: Auth = getAuth(firebaseApp);
+export const firebaseFunctions: Functions = getFunctions(firebaseApp, 'us-central1');

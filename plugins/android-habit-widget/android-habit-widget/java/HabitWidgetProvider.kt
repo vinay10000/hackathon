@@ -32,6 +32,11 @@ class HabitWidgetProvider : AppWidgetProvider() {
     const val EXTRA_HABIT_ID = "habitId"
     private const val PREFS = "habitai_widget"
     private const val KEY_HABIT_PREFIX = "habit_"
+    private const val GRID_ROWS = 4
+    private const val GRID_COLUMNS = 21
+    private const val GRID_TOTAL = GRID_ROWS * GRID_COLUMNS
+    private val COMPLETED_CHECK = Color.WHITE
+    private val PENDING_CHECK = Color.rgb(107, 114, 128)
 
     fun saveHabitSelection(context: Context, widgetId: Int, habitId: String) {
       context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_HABIT_PREFIX + widgetId, habitId).apply()
@@ -58,7 +63,7 @@ class HabitWidgetProvider : AppWidgetProvider() {
       views.setViewVisibility(context.id("habit_widget_done"), View.VISIBLE)
       views.setTextViewText(context.id("habit_widget_title"), habit.name)
       views.setTextViewText(context.id("habit_widget_streak"), "Streak: ${HabitWidgetStorage.currentStreak(habit, store.logs)} days")
-      views.setInt(context.id("habit_widget_done"), "setBackgroundColor", if (completedToday) habit.color else Color.rgb(37, 48, 68))
+      views.setTextColor(context.id("habit_widget_done"), if (completedToday) COMPLETED_CHECK else PENDING_CHECK)
 
       val toggleIntent = Intent(context, HabitWidgetProvider::class.java).apply {
         action = ACTION_TOGGLE_TODAY
@@ -74,16 +79,17 @@ class HabitWidgetProvider : AppWidgetProvider() {
 
       val gridId = context.id("habit_widget_grid")
       views.removeAllViews(gridId)
-      val start = today.minusDays(69)
-      for (index in 0 until 70) {
+      val start = today.minusDays((GRID_TOTAL - 1).toLong())
+      for (index in 0 until GRID_TOTAL) {
         val date = start.plusDays(index.toLong())
         val cell = RemoteViews(context.packageName, context.resources.getIdentifier("habit_widget_cell", "layout", context.packageName))
-        val color = when {
+        val fillColor = when {
           HabitWidgetStorage.isCompleted(store.logs, habit.id, date) -> habit.color
           HabitWidgetStorage.isScheduled(habit, date, store.logs) -> Color.rgb(37, 48, 68)
           else -> Color.rgb(24, 29, 40)
         }
-        cell.setInt(context.id("habit_widget_cell"), "setBackgroundColor", color)
+        cell.setInt(context.id("habit_widget_cell_fill"), "setColorFilter", fillColor)
+        cell.setViewVisibility(context.id("habit_widget_cell_today_outline"), if (date == today) View.VISIBLE else View.GONE)
         views.addView(gridId, cell)
       }
 

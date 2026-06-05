@@ -1,42 +1,41 @@
-const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+import { httpsCallable } from 'firebase/functions';
+
+import { firebaseFunctions } from '@/src/lib/firebase';
+
 const GEMINI_MODEL = process.env.EXPO_PUBLIC_GEMINI_MODEL ?? 'gemini-3.1-flash-lite-preview';
 
 type GenerateTextOptions = {
   systemInstruction?: string;
 };
 
+type GenerateGeminiTextRequest = {
+  prompt: string;
+  systemInstruction?: string;
+  model?: string;
+};
+
+type GenerateGeminiTextResponse = {
+  text: string;
+  model: string;
+};
+
+const generateGeminiTextCallable = httpsCallable<GenerateGeminiTextRequest, GenerateGeminiTextResponse>(
+  firebaseFunctions,
+  'generateGeminiText',
+);
+
 export async function generateGeminiText(prompt: string, options: GenerateTextOptions = {}) {
-  if (!GEMINI_API_KEY) {
-    throw new Error('Missing EXPO_PUBLIC_GEMINI_API_KEY.');
+  const trimmedPrompt = prompt.trim();
+  if (!trimmedPrompt) {
+    throw new Error('Missing Gemini prompt.');
   }
 
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      systemInstruction: options.systemInstruction
-        ? {
-            parts: [{ text: options.systemInstruction }],
-          }
-        : undefined,
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: prompt }],
-        },
-      ],
-    }),
+  const response = await generateGeminiTextCallable({
+    prompt: trimmedPrompt,
+    systemInstruction: options.systemInstruction?.trim() || undefined,
+    model: GEMINI_MODEL,
   });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Gemini request failed (${response.status}): ${errorText}`);
-  }
-
-  const json = await response.json();
-  const text = json?.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text ?? '').join('').trim();
+  const text = response.data?.text?.trim();
 
   if (!text) {
     throw new Error('Gemini returned an empty response.');

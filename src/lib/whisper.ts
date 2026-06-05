@@ -1,6 +1,9 @@
-const GROQ_API_KEY = process.env.EXPO_PUBLIC_GROQ_API_KEY;
+import { httpsCallable } from 'firebase/functions';
+
+import { firebaseFunctions } from '@/src/lib/firebase';
+
 const GROQ_WHISPER_MODEL = process.env.EXPO_PUBLIC_GROQ_WHISPER_MODEL ?? 'whisper-large-v3-turbo';
-const GROQ_TRANSCRIPT_ENDPOINT = 'https://api.groq.com/openai/v1/audio/transcriptions';
+const WHISPER_CLEANUP_ENABLED = process.env.EXPO_PUBLIC_ENABLE_WHISPER_CLEANUP === 'true';
 
 export type WhisperCleanupResult = {
   text: string;
@@ -13,49 +16,42 @@ type WhisperCleanupOptions = {
   prompt?: string;
 };
 
+type WhisperCleanupRequest = {
+  audioBase64: string;
+  fileName: string;
+  mimeType: string;
+  language?: string;
+  prompt?: string;
+  model?: string;
+};
+
+const cleanupTranscriptWithWhisperCallable = httpsCallable<WhisperCleanupRequest, WhisperCleanupResult>(
+  firebaseFunctions,
+  'cleanupTranscriptWithWhisper',
+);
+
 export async function cleanupTranscriptWithWhisper(audioUri: string, options: WhisperCleanupOptions = {}) {
-  if (!GROQ_API_KEY) {
-    throw new Error('Missing EXPO_PUBLIC_GROQ_API_KEY.');
+  const audioBase64 = await readAudioFileAsBase64(audioUri);
+  if (!audioBase64) {
+    throw new Error('Audio capture was empty.');
   }
 
-  const formData = new FormData();
-  formData.append('model', GROQ_WHISPER_MODEL);
-  formData.append('response_format', 'verbose_json');
-  if (options.language) {
-    formData.append('language', options.language);
-  }
-  if (options.prompt?.trim()) {
-    formData.append('prompt', options.prompt.trim());
-  }
-
-  formData.append('file', {
-    uri: audioUri,
-    name: pickFileName(audioUri),
-    type: pickMimeType(audioUri),
-  } as unknown as Blob);
-
-  const response = await fetch(GROQ_TRANSCRIPT_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-    },
-    body: formData,
+  const response = await cleanupTranscriptWithWhisperCallable({
+    audioBase64,
+    fileName: pickFileName(audioUri),
+    mimeType: pickMimeType(audioUri),
+    language: options.language?.trim() || undefined,
+    prompt: options.prompt?.trim() || undefined,
+    model: GROQ_WHISPER_MODEL,
   });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Whisper cleanup failed (${response.status}): ${errorText}`);
-  }
-
-  const json = await response.json();
-  const text = typeof json?.text === 'string' ? json.text.trim() : '';
+  const text = response.data?.text?.trim();
   if (!text) {
     throw new Error('Whisper cleanup returned an empty transcript.');
   }
 
   return {
     text,
-    model: GROQ_WHISPER_MODEL,
+    model: response.data?.model?.trim() || GROQ_WHISPER_MODEL,
     provider: 'groq' as const,
   } satisfies WhisperCleanupResult;
 }
@@ -65,7 +61,7 @@ export function getWhisperModelName() {
 }
 
 export function hasWhisperCleanupConfigured() {
-  return Boolean(GROQ_API_KEY);
+  return WHISPER_CLEANUP_ENABLED;
 }
 
 function pickFileName(uri: string) {
@@ -85,4 +81,31 @@ function pickMimeType(uri: string) {
     return 'audio/mpeg';
   }
   return 'audio/wav';
+}
+
+async function readAudioFileAsBase64(audioUri: string) {
+  const response = await fetch(audioUri);
+  if (!response.ok) {
+    throw new Error(`Audio capture could not be read (${response.status}).`);
+  }
+
+  const blob = await response.blob();
+  return blobToBase64(blob);
+}
+
+function blobToBase64(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      const base64 = result.includes(',') ? result.split(',')[1] : result;
+      if (!base64) {
+        reject(new Error('Audio capture could not be encoded.'));
+        return;
+      }
+      resolve(base64);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('Audio capture could not be encoded.'));
+    reader.readAsDataURL(blob);
+  });
 }

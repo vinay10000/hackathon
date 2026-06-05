@@ -39,7 +39,8 @@
 - Added local Assistant execution for confirmed create, modify, complete, and delete actions in the new unified flow
 - Integrated `expo-speech-recognition` and `expo-speech` for live transcript capture, spoken assistant replies, microphone permissions, and voice/chat continuity in Assistant
 - Upgraded Assistant into a more open conversational coach/action planner using Gemini for grounded coaching and structured safe previews, with local confirmation-first execution
-- Added a Groq Whisper cleanup seam using `whisper-large-v3-turbo` for final voice transcript cleanup after `expo-speech-recognition` live text, pending `EXPO_PUBLIC_GROQ_API_KEY`
+- Added a Groq Whisper cleanup seam using `whisper-large-v3-turbo` for final voice transcript cleanup after `expo-speech-recognition` live text, now routed through Firebase Cloud Functions instead of a client-side API key
+- Moved Gemini request execution behind a Firebase Cloud Function so the Expo client no longer needs a public Gemini API key
 - Added local data export seam, privacy-safe telemetry helper, and confirmed local data reset/account-deletion flow
 - Added delete confirmation for habit detail destructive actions
 - Extended AMOLED/theme token support into shared stat cards, empty states, habit cards, and habit creation/edit forms
@@ -62,7 +63,6 @@
 ## Not Started
 - Firestore sync service integration
 - RevenueCat-backed purchase and entitlement refresh integration intentionally deferred
-- Server-side AI gateway integration for production key protection
 - Full app-wide accessibility and contrast audit
 - Production privacy policy, terms, support, export, and account deletion implementations
 
@@ -73,7 +73,7 @@
 - Current architecture is intentionally local-first; Firebase, RevenueCat, and AI services are deferred until the manual tracking core is stable
 
 ## Current Caveats
-- Assistant tab now supports a real shared voice/chat conversation loop with live transcript, optional Groq Whisper final cleanup, Gemini coaching/action planning, follow-up clarification, and confirmation-first local actions, but Gemini and Groq are still client-side `EXPO_PUBLIC_*` integrations until a server gateway is added
+- Assistant tab now supports a real shared voice/chat conversation loop with live transcript, optional Groq Whisper final cleanup, Gemini coaching/action planning, follow-up clarification, and confirmation-first local actions; both Gemini and Groq Whisper now route through Firebase Cloud Functions
 - Reminders are implemented as a first pass and are strongest for daily or weekday habits; more complex schedule-aware reminder behavior still needs refinement
 - Theme preference and AMOLED support are implemented across shell, tabs, settings, assistant, shared stat/empty/habit cards, habit detail, and the refreshed create/edit habit forms; analytics and calendar still need final visual polish
 - Firebase Auth is wired for Android native Google Sign-In plus passwordless email-link sign-in; this is not a true numeric email OTP flow and may still need finalized authorized-domain/deep-link handling for production polish
@@ -83,7 +83,7 @@
 
 ## Next Concrete Steps
 - Finish tokenizing legacy cards/forms/details so Light, Dark, and AMOLED are consistent everywhere
-- Add Firestore sync and Cloud Functions seams
+- Add Firestore sync and extend the new Cloud Functions seam to any future AI/provider calls
 - Keep premium checks local for now; do not add RevenueCat until subscriptions become a real release target
 - Connect backend AI intent parsing and server-side tool execution to the Assistant confirmation flow
 - Add `EXPO_PUBLIC_GROQ_API_KEY` when ready to enable Whisper final transcript cleanup on native devices that support persisted speech recordings
@@ -124,6 +124,8 @@
 - 2026-05-28: Smoothed the fullscreen Assistant voice reset with a short fade-out on both transcript and agent reply before they clear
 - 2026-05-28: Rebuilt onboarding into a dark swipeable illustration carousel using the new asset images, added 5-second auto-advance with manual swiping, and routed both `Next` and `Sign in` to the auth screen
 - 2026-05-30: Rebuilt the Assistant screen into one shared voice/chat assistant with persistent conversation history, live voice transcript, spoken AI replies, clarification loops, and explicit confirmation cards for create/modify/complete/delete actions
+- 2026-06-04: Added a Firebase Cloud Function Gemini gateway, switched the Expo client to callable Functions, and removed the public Gemini API key dependency from the app bundle path
+- 2026-06-04: Added a Firebase Cloud Function Groq Whisper gateway, switched transcript cleanup to callable Functions, and removed the public Groq API key dependency from the app bundle path
 - 2026-05-30: Refined the auth screen into a more mobile-native entry experience with stronger hierarchy, benefit chips, clearer Google-vs-guest guidance, and better accessibility/loading/error states
 - 2026-05-30: Reworked the auth screen again into a cleaner two-zone mobile composition with a stronger preview panel, segmented habit-mode storytelling, and a more intentional action sheet
 - 2026-06-02: Added the Analytics-style weekly trend chart to each individual habit detail screen, scoped to that habit's real schedule and logs with no mocked trend data

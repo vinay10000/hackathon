@@ -28,7 +28,8 @@ type AppState = {
   setProfile: (profile: { displayName?: string; profileAvatarId?: string }) => void;
   setPremiumEntitlement: (value: PremiumState['entitlement']) => void;
   startEmailSession: (email: string) => void;
-  startFirebaseSession: (session: Pick<UserSession, 'mode' | 'uid' | 'email' | 'displayName'>) => void;
+  startFirebaseSession: (session: Pick<UserSession, 'mode' | 'uid' | 'email' | 'displayName' | 'emailVerified'>) => void;
+  updateFirebaseSessionAccount: (session: Partial<Pick<UserSession, 'email' | 'displayName' | 'emailVerified'>>) => void;
   continueAsGuest: () => void;
   queueSync: () => void;
   markSynced: () => void;
@@ -178,7 +179,17 @@ export const useAppStore = create<AppState>()(
             uid: session.uid,
             email: session.email,
             displayName: session.displayName,
+            emailVerified: session.emailVerified,
             syncStatus: 'queued',
+          },
+        })),
+      updateFirebaseSessionAccount: (session) =>
+        set((state) => ({
+          session: {
+            ...state.session,
+            email: session.email ?? state.session.email,
+            displayName: session.displayName ?? state.session.displayName,
+            emailVerified: session.emailVerified ?? state.session.emailVerified,
           },
         })),
       continueAsGuest: () =>
@@ -190,6 +201,7 @@ export const useAppStore = create<AppState>()(
           session: {
             mode: 'guest',
             displayName: state.session.displayName,
+            emailVerified: false,
             syncStatus: 'local-only',
           },
         })),
@@ -220,6 +232,7 @@ export const useAppStore = create<AppState>()(
           session: {
             mode: 'guest',
             displayName: state.session.displayName,
+            emailVerified: false,
             syncStatus: 'local-only',
           },
           premium: {

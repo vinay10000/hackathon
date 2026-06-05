@@ -54,6 +54,7 @@ export type UserSession = {
   uid?: string;
   email?: string;
   displayName?: string;
+  emailVerified?: boolean;
   syncStatus: 'local-only' | 'queued' | 'synced' | 'error';
 };
 

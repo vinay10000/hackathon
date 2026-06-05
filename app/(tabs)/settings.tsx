@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -7,7 +7,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { ReminderTimePopup } from '@/src/components/reminder-time-popup';
 import { PROFILE_AVATARS } from '@/src/constants/profile';
-import { signOutOfFirebase } from '@/src/lib/auth';
+import { refreshCurrentUserProfile, requestEmailChange, resendVerificationEmail, sendPasswordRecoveryEmail, signOutOfFirebase } from '@/src/lib/auth';
 import { canScheduleNotifications, requestNotificationAccess } from '@/src/lib/notifications';
 import { buildLocalDataExport, buildPrivacySafeTelemetry } from '@/src/lib/privacy-export';
 import { useAppStore } from '@/src/store/app-store';
@@ -40,7 +40,12 @@ export default function SettingsScreen() {
   const continueAsGuest = useAppStore((state) => state.continueAsGuest);
   const markSynced = useAppStore((state) => state.markSynced);
   const resetLocalData = useAppStore((state) => state.resetLocalData);
+  const updateFirebaseSessionAccount = useAppStore((state) => state.updateFirebaseSessionAccount);
   const [dailyReminderOpen, setDailyReminderOpen] = useState(false);
+  const [accountBusy, setAccountBusy] = useState<'refresh' | 'verify' | 'reset' | 'changeEmail' | null>(null);
+  const [accountMessage, setAccountMessage] = useState<{ kind: 'error' | 'success'; text: string } | null>(null);
+  const [nextEmail, setNextEmail] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
 
   const contentWidth = Math.min(width - 32, 430);
   const selectedAvatar = PROFILE_AVATARS.find((avatar) => avatar.id === preferences.profileAvatarId) ?? PROFILE_AVATARS[0];
@@ -58,6 +63,91 @@ export default function SettingsScreen() {
     setNotificationPermission(nextValue);
     if (nextValue === 'granted' && preferences.dailyReminderEnabled) {
       await saveDailyReminderPreference(preferences.dailyReminderTime, true);
+    }
+  }
+
+  useEffect(() => {
+    if (session.mode !== 'email') {
+      return;
+    }
+
+    let cancelled = false;
+    setAccountBusy('refresh');
+    refreshCurrentUserProfile()
+      .then((profile) => {
+        if (cancelled) {
+          return;
+        }
+        updateFirebaseSessionAccount({
+          email: profile.email,
+          displayName: profile.displayName,
+          emailVerified: profile.emailVerified,
+        });
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) {
+          setAccountBusy((current) => (current === 'refresh' ? null : current));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session.mode, updateFirebaseSessionAccount]);
+
+  async function handleResendVerification() {
+    setAccountBusy('verify');
+    setAccountMessage(null);
+    try {
+      await resendVerificationEmail();
+      setAccountMessage({ kind: 'success', text: 'Verification email sent. Open the link in your inbox, then come back here.' });
+    } catch (error) {
+      setAccountMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Could not send verification email.' });
+    } finally {
+      setAccountBusy(null);
+    }
+  }
+
+  async function handlePasswordReset() {
+    if (!session.email) {
+      setAccountMessage({ kind: 'error', text: 'No account email found. Sign in again first.' });
+      return;
+    }
+
+    setAccountBusy('reset');
+    setAccountMessage(null);
+    try {
+      const email = await sendPasswordRecoveryEmail(session.email);
+      setAccountMessage({ kind: 'success', text: `Password reset instructions sent to ${email}.` });
+    } catch (error) {
+      setAccountMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Could not send password reset email.' });
+    } finally {
+      setAccountBusy(null);
+    }
+  }
+
+  async function handleEmailChange() {
+    if (!nextEmail.trim()) {
+      setAccountMessage({ kind: 'error', text: 'Enter the new email address you want to use.' });
+      return;
+    }
+    if (!currentPassword) {
+      setAccountMessage({ kind: 'error', text: 'Enter your current password to confirm the email change.' });
+      return;
+    }
+
+    setAccountBusy('changeEmail');
+    setAccountMessage(null);
+    try {
+      const email = await requestEmailChange({ newEmail: nextEmail, currentPassword });
+      setAccountMessage({ kind: 'success', text: `Confirmation sent to ${email}. Your email updates after you verify it.` });
+      setNextEmail('');
+      setCurrentPassword('');
+    } catch (error) {
+      setAccountMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Could not start the email change.' });
+    } finally {
+      setAccountBusy(null);
     }
   }
 
@@ -207,6 +297,105 @@ export default function SettingsScreen() {
                 setDailyReminderOpen(true);
               }}
             />
+          </GlassCard>
+
+          <GlassCard>
+            <View style={styles.topRow}>
+              <CardHeading icon="shield-checkmark-outline" iconColor="#22c55e" title="Account security" subtitle="Verification, recovery, and email changes" />
+            </View>
+            {session.mode === 'email' ? (
+              <View style={styles.accountSection}>
+                <View style={[styles.accountSummary, { backgroundColor: settingsPalette.input, borderColor: tokens.border }]}>
+                  <View style={styles.accountSummaryTop}>
+                    <View style={styles.accountIdentity}>
+                      <Text style={[styles.accountEmail, { color: tokens.text }]}>{session.email ?? 'Email account'}</Text>
+                      <Text style={[styles.accountCaption, { color: tokens.textMuted }]}>
+                        {session.emailVerified ? 'Verified and ready for sync.' : 'Verification pending. Confirm your inbox before relying on email sign-in.'}
+                      </Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.verificationBadge,
+                        { backgroundColor: session.emailVerified ? 'rgba(22,163,74,0.16)' : 'rgba(245,158,11,0.16)' },
+                      ]}
+                    >
+                      <Text style={[styles.verificationBadgeText, { color: session.emailVerified ? '#16a34a' : '#d97706' }]}>
+                        {session.emailVerified ? 'Verified' : 'Pending'}
+                      </Text>
+                    </View>
+                  </View>
+                  {!session.emailVerified ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={handleResendVerification}
+                      style={[styles.accountAction, { borderColor: tokens.border }]}
+                    >
+                      <Text style={[styles.accountActionText, { color: tokens.primary }]}>
+                        {accountBusy === 'verify' ? 'Sending...' : 'Resend verification email'}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+
+                <Pressable accessibilityRole="button" onPress={handlePasswordReset} style={[styles.insetRow, { backgroundColor: settingsPalette.input, borderColor: tokens.border }]}>
+                  <View style={styles.rowLeft}>
+                    <Ionicons name="key-outline" size={18} color={tokens.textMuted} />
+                    <Text style={[styles.rowLabel, { color: tokens.text }]}>Password recovery</Text>
+                  </View>
+                  <Text style={[styles.rowValue, { color: tokens.primary }]}>{accountBusy === 'reset' ? 'Sending...' : 'Send reset email'}</Text>
+                </Pressable>
+
+                <View style={[styles.accountForm, { backgroundColor: settingsPalette.input, borderColor: tokens.border }]}>
+                  <Text style={[styles.accountFormTitle, { color: tokens.text }]}>Change email address</Text>
+                  <Text style={[styles.accountCaption, { color: tokens.textMuted }]}>We’ll verify the new address before switching your account.</Text>
+                  <TextInput
+                    value={nextEmail}
+                    onChangeText={setNextEmail}
+                    placeholder="New email address"
+                    placeholderTextColor={tokens.textMuted}
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                    style={[styles.accountInput, { color: tokens.text, borderColor: tokens.border }]}
+                  />
+                  <TextInput
+                    value={currentPassword}
+                    onChangeText={setCurrentPassword}
+                    placeholder="Current password"
+                    placeholderTextColor={tokens.textMuted}
+                    autoCapitalize="none"
+                    secureTextEntry
+                    style={[styles.accountInput, { color: tokens.text, borderColor: tokens.border }]}
+                  />
+                  <Pressable accessibilityRole="button" onPress={handleEmailChange} style={[styles.accountPrimaryButton, { backgroundColor: tokens.primary }]}>
+                    <Text style={styles.accountPrimaryButtonText}>{accountBusy === 'changeEmail' ? 'Starting...' : 'Verify new email'}</Text>
+                  </Pressable>
+                </View>
+
+                {accountMessage ? (
+                  <View
+                    style={[
+                      styles.accountFeedback,
+                      {
+                        backgroundColor: accountMessage.kind === 'error' ? 'rgba(127,29,29,0.14)' : 'rgba(22,101,52,0.14)',
+                        borderColor: accountMessage.kind === 'error' ? tokens.danger : '#16a34a',
+                      },
+                    ]}
+                  >
+                    <Ionicons name={accountMessage.kind === 'error' ? 'alert-circle' : 'checkmark-circle'} size={18} color={accountMessage.kind === 'error' ? tokens.danger : '#16a34a'} />
+                    <Text style={[styles.accountFeedbackText, { color: accountMessage.kind === 'error' ? tokens.danger : '#16a34a' }]}>{accountMessage.text}</Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : (
+              <View style={[styles.accountSummary, { backgroundColor: settingsPalette.input, borderColor: tokens.border }]}>
+                <Text style={[styles.accountEmail, { color: tokens.text }]}>{session.mode === 'google' ? 'Google-managed account' : 'Guest mode'}</Text>
+                <Text style={[styles.accountCaption, { color: tokens.textMuted }]}>
+                  {session.mode === 'google'
+                    ? 'Email verification, recovery, and address changes are managed by your Google account.'
+                    : 'Switch to an email account from the auth screen if you want verified email security primitives.'}
+                </Text>
+              </View>
+            )}
           </GlassCard>
 
           <GlassCard>
@@ -854,6 +1043,98 @@ const styles = StyleSheet.create({
   listLabelDestructive: {
     color: '#ff514f',
     fontWeight: '500',
+  },
+  accountSection: {
+    gap: 12,
+  },
+  accountSummary: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 14,
+    gap: 12,
+  },
+  accountSummaryTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  accountIdentity: {
+    flex: 1,
+    gap: 6,
+  },
+  accountEmail: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  accountCaption: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  verificationBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  verificationBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  accountAction: {
+    minHeight: 42,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  accountActionText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  accountForm: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 14,
+    gap: 10,
+  },
+  accountFormTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  accountInput: {
+    minHeight: 46,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    fontSize: 15,
+    backgroundColor: 'transparent',
+  },
+  accountPrimaryButton: {
+    minHeight: 46,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  accountPrimaryButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  accountFeedback: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  accountFeedbackText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
   },
   utilityRail: {
     flexDirection: 'row',
