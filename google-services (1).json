@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "977147075388",
+    "project_id": "habit-tracker-9f884",
+    "storage_bucket": "habit-tracker-9f884.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:977147075388:android:4df20b1f7de3a09b155c39",
+        "android_client_info": {
+          "package_name": "com.hackathon.habitai"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "977147075388-2t41e6288vkel3oit3vj8ootnj7svbca.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.hackathon.habitai",
+            "certificate_hash": "7a5645477a21ab6e41742c0ce66b5c401651e3eb"
+          }
+        },
+        {
+          "client_id": "977147075388-h7a776prph50uhfiinm1q2o9msa4uk1s.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.hackathon.habitai",
+            "certificate_hash": "7fbd3bb0523bdcc558f7889dccb600d237644516"
+          }
+        },
+        {
+          "client_id": "977147075388-k1tmkpof3dcbk8buuudlsrg0cj74nr2t.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCvrklJIt0I6KlHGXj3_WL_7nP2Ha4fc_U"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "977147075388-k1tmkpof3dcbk8buuudlsrg0cj74nr2t.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,21 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e52]:
+    - generic [ref=e53]:
+      - generic [ref=e55]: 
+      - generic [ref=e56]: HabitAI
+      - generic [ref=e57]: Calm accountability for better habits.
+    - generic [ref=e58]:
+      - button "Continue with Google" [ref=e59] [cursor=pointer]:
+        - generic [ref=e60]: 
+        - generic [ref=e61]: Continue with Google
+      - button "Continue with email" [ref=e62] [cursor=pointer]:
+        - generic [ref=e63]
+        - generic [ref=e67]: 
+      - generic [ref=e70]: or
+      - button "Continue as guest" [ref=e72] [cursor=pointer]:
+        - generic [ref=e73]: Continue as guest
+    - generic [ref=e74] [cursor=pointer]:
+      - generic [ref=e75]: 
+      - generic [ref=e76]: Back
+  - iframe [ref=e77]:
+    

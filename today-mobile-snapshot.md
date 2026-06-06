@@ -1,0 +1,69 @@
+- generic [ref=e25] [box=0,0,390,844]:
+  - generic [ref=e32] [box=0,0,390,900]:
+    - generic [ref=e33] [box=14,12,362,98]:
+      - generic [ref=e34] [box=14,12,288,98]:
+        - generic [ref=e35] [box=14,14,288,70]: Good afternoon, Friend! 👋
+        - generic [ref=e36] [box=14,90,288,20]: June 1, 2026 • Monday
+      - button "Open settings" [ref=e40] [cursor=pointer] [box=354,52,24,24]:
+        - generic [ref=e139] [box=360,58,12,13]: 
+    - generic [ref=e42] [box=33,143,325,216]:
+      - generic [ref=e48] [cursor=pointer] [box=54,197,108,108]:
+        - generic [ref=e49] [box=87,221,42,38]: 0%
+        - generic [ref=e50] [box=63,263,90,18]: Daily Progress
+      - generic [ref=e51] [box=199,143,159,216]:
+        - generic [ref=e52] [box=199,147,159,64]: Let’s begin!
+        - generic [ref=e53] [box=199,223,159,44]: A few small wins will move today forward.
+        - generic [ref=e54] [cursor=pointer] [box=199,279,159,80]:
+          - generic [ref=e59] [box=203,343,11,14]: M
+          - generic [ref=e64] [box=228,343,6,14]: T
+          - generic [ref=e69] [box=249,343,11,14]: W
+          - generic [ref=e74] [box=275,343,6,14]: T
+          - generic [ref=e79] [box=299,343,6,14]: F
+          - generic [ref=e84] [box=322,343,6,14]: S
+          - generic [ref=e89] [box=345,343,6,14]: S
+    - generic [ref=e90] [box=14,392,362,91]:
+      - generic [ref=e91] [box=31,407,101,61]:
+        - generic [ref=e92] [box=31,407,101,38]:
+          - generic [ref=e93] [box=61,416,16,18]: 
+          - generic [ref=e94] [box=85,407,17,38]: "0"
+        - generic [ref=e95] [box=31,450,101,18]: Day Streak
+      - generic [ref=e97] [box=145,407,101,61]:
+        - generic [ref=e98] [box=145,407,101,38]:
+          - generic [ref=e99] [box=175,416,16,18]: 
+          - generic [ref=e100] [box=199,407,17,38]: "0"
+        - generic [ref=e101] [box=145,450,101,18]: Completed
+      - generic [ref=e103] [box=259,407,101,61]:
+        - generic [ref=e104] [box=259,407,101,38]:
+          - generic [ref=e105] [box=289,416,16,18]: 
+          - generic [ref=e106] [box=313,407,17,38]: "0"
+        - generic [ref=e107] [box=259,450,101,18]: Remaining
+    - generic [ref=e109] [box=14,497,180,44]:
+      - button "All" [ref=e110] [cursor=pointer] [box=14,499,47,40]:
+        - generic [ref=e111] [box=29,510,18,18]: All
+      - button " Completed" [ref=e112] [cursor=pointer] [box=71,499,123,40]:
+        - generic [ref=e113] [box=86,511,14,15]: 
+        - generic [ref=e114] [box=107,510,72,18]: Completed
+    - generic [ref=e115] [box=14,557,362,39]:
+      - generic [ref=e116] [box=14,557,221,39]: Today's Habits
+      - button "Seed five random completed habit logs from the last two weeks" [ref=e117] [cursor=pointer] [box=304,559,73,34]:
+        - generic [ref=e118] [box=316,569,14,15]: 
+        - generic [ref=e119] [box=336,568,27,18]: Test
+    - generic [ref=e120] [box=14,610,362,122]:
+      - generic [ref=e121] [box=39,635,313,24]: Nothing scheduled yet
+      - generic [ref=e122] [box=39,667,313,40]: Create your first habit and it will show up here with live progress.
+  - generic [ref=e123] [box=0,0,390,844]:
+    - generic [ref=e124] [box=16,734,284,72]:
+      - button " Today" [ref=e125] [cursor=pointer] [box=27,744,52,53]:
+        - generic [ref=e126] [box=42,751,22,23]: 
+        - generic [ref=e127] [box=39,778,27,11]: Today
+      - button " Calendar" [ref=e128] [cursor=pointer] [box=83,744,68,53]:
+        - generic [ref=e129] [box=106,751,22,23]: 
+        - generic [ref=e130] [box=97,778,40,11]: Calendar
+      - button " Analytics" [ref=e131] [cursor=pointer] [box=155,744,68,53]:
+        - generic [ref=e132] [box=178,751,22,23]: 
+        - generic [ref=e133] [box=168,778,41,11]: Analytics
+      - button " Assistant" [ref=e134] [cursor=pointer] [box=227,744,68,53]:
+        - generic [ref=e135] [box=250,751,22,23]: 
+        - generic [ref=e136] [box=241,778,41,11]: Assistant
+    - button "Add habit" [ref=e137] [cursor=pointer] [box=316,744,60,60]:
+      - generic [ref=e138] [box=335,761,22,23]: 
