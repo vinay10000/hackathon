@@ -55,8 +55,8 @@ export default function EditHabitScreen() {
 
         <View style={[styles.heroCard, { backgroundColor: isLight ? '#ffffff' : '#08111f', borderColor: isLight ? '#d9e6f3' : 'rgba(96,165,250,0.14)' }]}>
           <Text style={[styles.eyebrow, { color: isLight ? '#2563eb' : '#93c5fd' }]}>Edit habit</Text>
-          <Text style={[styles.title, { color: isLight ? '#10243e' : '#ffffff' }]}>{habit.name}</Text>
-          <Text style={[styles.subtitle, { color: isLight ? '#5c6b82' : 'rgba(226,232,240,0.84)' }]}>Tune the schedule, visuals, and reminder flow without losing progress history.</Text>
+          <Text style={[styles.title, { color: isLight ? '#10243e' : '#ffffff' }]}>Build something easy to show up for.</Text>
+          <Text style={[styles.subtitle, { color: isLight ? '#5c6b82' : 'rgba(226,232,240,0.84)' }]}>Pick the core habit details first. The rest stays lightweight so the screen feels fast instead of form-heavy.</Text>
         </View>
 
         <HabitForm draft={draft} onChange={setDraft} />
@@ -65,15 +65,15 @@ export default function EditHabitScreen() {
       <View style={[styles.bottomDock, { paddingBottom: Math.max(insets.bottom, 12), backgroundColor: tokens.background, borderTopColor: isLight ? '#d9e6f3' : 'rgba(96,165,250,0.12)' }]}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Save changes"
+          accessibilityLabel="Save habit"
           onPress={async () => {
             await saveHabit(draft, habit.id);
             router.replace(`/habit/${habit.id}`);
           }}
           style={[styles.saveButton, isLight ? styles.saveButtonLight : null]}
         >
-          <Ionicons name="save-outline" size={18} color="#ffffff" />
-          <Text style={styles.saveButtonText}>Save changes</Text>
+          <Ionicons name="checkmark-circle-outline" size={18} color="#ffffff" />
+          <Text style={styles.saveButtonText}>Save habit</Text>
         </Pressable>
       </View>
     </SafeAreaView>

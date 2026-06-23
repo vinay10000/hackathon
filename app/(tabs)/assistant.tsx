@@ -1,10 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import * as Speech from 'expo-speech';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
   Animated,
   Easing,
   KeyboardAvoidingView,
@@ -26,10 +26,11 @@ import {
 import { cleanupTranscriptWithWhisper, getWhisperModelName, hasWhisperCleanupConfigured } from '@/src/lib/whisper';
 import { useAppStore } from '@/src/store/app-store';
 import { AssistantSessionMessage } from '@/src/types/habits';
+import { useThemeTokens } from '@/src/theme/colors';
 
 type InteractionMode = 'voice' | 'chat';
 
-type ResultPopup = {
+type Toast = {
   type: 'success' | 'failure';
   title: string;
   message: string;
@@ -43,7 +44,11 @@ type PendingAssistantAction = {
   selectedHabitId?: string;
 };
 
+// One constant drives the whole orb so it scales as a single unit.
+const ORB_SIZE = 188;
+
 export default function AssistantScreen() {
+  const tokens = useThemeTokens();
   const insets = useSafeAreaInsets();
   const habits = useAppStore((state) => state.habits);
   const logs = useAppStore((state) => state.logs);
@@ -64,12 +69,11 @@ export default function AssistantScreen() {
   const [messages, setMessages] = useState<AssistantSessionMessage[]>([]);
   const [chatDraft, setChatDraft] = useState('');
   const [transcript, setTranscript] = useState('');
-  const [finalTranscript, setFinalTranscript] = useState('');
   const [recognizing, setRecognizing] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [cleaningTranscript, setCleaningTranscript] = useState(false);
   const [speechError, setSpeechError] = useState('');
-  const [resultPopup, setResultPopup] = useState<ResultPopup | null>(null);
+  const [toast, setToast] = useState<Toast | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAssistantAction | null>(null);
   const [sessionId, setSessionId] = useState(createSessionId());
   const [selectedHabitId, setSelectedHabitId] = useState<string | undefined>(undefined);
@@ -81,63 +85,83 @@ export default function AssistantScreen() {
   const voiceTurnInFlightRef = useRef(false);
   const scrollViewRef = useRef<ScrollView | null>(null);
   const idlePulse = useRef(new Animated.Value(0)).current;
-  const speechPulse = useRef(new Animated.Value(0)).current;
-  const waveShift = useRef(new Animated.Value(0)).current;
+  const activePulse = useRef(new Animated.Value(0)).current;
+  const glowOpacity = useRef(new Animated.Value(0)).current;
+  const toastOffset = useRef(new Animated.Value(0)).current;
 
+  // Derived palette from tokens — one source of truth for the screen.
+  const palette = useMemo(() => buildAssistantPalette(tokens), [tokens]);
+
+  // Breathing pulse — always running, subtle.
   useEffect(() => {
     const idleLoop = Animated.loop(
       Animated.sequence([
         Animated.timing(idlePulse, {
           toValue: 1,
-          duration: 2200,
+          duration: 2600,
           easing: Easing.inOut(Easing.quad),
           useNativeDriver: true,
         }),
         Animated.timing(idlePulse, {
           toValue: 0,
-          duration: 2200,
+          duration: 2600,
           easing: Easing.inOut(Easing.quad),
           useNativeDriver: true,
         }),
       ]),
     );
-
-    const speechLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(speechPulse, {
-          toValue: 1,
-          duration: 720,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(speechPulse, {
-          toValue: 0,
-          duration: 720,
-          easing: Easing.in(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-
-    const waveLoop = Animated.loop(
-      Animated.timing(waveShift, {
-        toValue: 1,
-        duration: 1800,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      }),
-    );
-
     idleLoop.start();
-    speechLoop.start();
-    waveLoop.start();
+    return () => idleLoop.stop();
+  }, [idlePulse]);
 
-    return () => {
-      idleLoop.stop();
-      speechLoop.stop();
-      waveLoop.stop();
-    };
-  }, [idlePulse, speechPulse, waveShift]);
+  // Active pulse — runs only while listening/processing, faster + punchier.
+  const isActive = recognizing || processing || cleaningTranscript;
+  useEffect(() => {
+    if (isActive) {
+      const activeLoop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(activePulse, {
+            toValue: 1,
+            duration: 760,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(activePulse, {
+            toValue: 0,
+            duration: 760,
+            easing: Easing.in(Easing.quad),
+            useNativeDriver: true,
+          }),
+        ]),
+      );
+      activeLoop.start();
+      Animated.timing(glowOpacity, {
+        toValue: 1,
+        duration: 420,
+        useNativeDriver: true,
+      }).start();
+      return () => {
+        activeLoop.stop();
+        Animated.timing(glowOpacity, {
+          toValue: 0,
+          duration: 420,
+          useNativeDriver: true,
+        }).start();
+      };
+    }
+    return;
+  }, [isActive, activePulse, glowOpacity]);
+
+  // Toast lifecycle — slide in, auto-dismiss, slide out.
+  useEffect(() => {
+    if (!toast) {
+      return;
+    }
+    Animated.spring(toastOffset, { toValue: 1, friction: 9, tension: 80, useNativeDriver: true }).start();
+    const timer = setTimeout(() => dismissToast(), 2800);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toast]);
 
   useEffect(() => {
     if (recognizing) {
@@ -156,9 +180,8 @@ export default function AssistantScreen() {
     setProcessing(false);
     setCleaningTranscript(false);
     setSpeechError('');
-    setResultPopup(null);
+    setToast(null);
     setTranscript('');
-    setFinalTranscript('');
     transcriptRef.current = '';
     processedTranscriptRef.current = '';
     audioRecordingUriRef.current = null;
@@ -202,11 +225,7 @@ export default function AssistantScreen() {
     voiceTurnInFlightRef.current = false;
     const message = event.message || 'Could not hear that clearly.';
     setSpeechError(message);
-    setResultPopup({
-      type: 'failure',
-      title: 'Speech failed',
-      message,
-    });
+    setToast({ type: 'failure', title: 'Speech failed', message });
     if (event.error === 'not-allowed') {
       setMicrophonePermission('denied');
     }
@@ -215,20 +234,38 @@ export default function AssistantScreen() {
   const voiceMessages = useMemo(() => messages.slice(-4), [messages]);
   const transcriptWords = useMemo(() => getTranscriptWords(transcript), [transcript]);
   const activeWordIndex = Math.min(liveWordIndex, Math.max(transcriptWords.length - 1, 0));
-  const orbScale = recognizing
-    ? speechPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.05] })
-    : processing
-      ? speechPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.03] })
-      : idlePulse.interpolate({ inputRange: [0, 1], outputRange: [0.99, 1.02] });
+  const isThinking = processing || cleaningTranscript;
+
+  const orbScale = isActive
+    ? activePulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] })
+    : idlePulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.025] });
+
+  const glowScale = glowOpacity.interpolate({ inputRange: [0, 1], outputRange: [1, 1.22] });
+
+  // Two user-facing states only. "Cleaning" folds silently into "Thinking".
+  const activeState: 'listening' | 'thinking' | 'confirming' | 'idle' = recognizing
+    ? 'listening'
+    : isThinking
+      ? 'thinking'
+      : pendingAction
+        ? 'confirming'
+        : 'idle';
+
+  function dismissToast() {
+    Animated.timing(toastOffset, { toValue: 0, duration: 220, useNativeDriver: true }).start(() => {
+      setToast(null);
+    });
+  }
 
   return (
-    <SafeAreaView edges={['top', 'bottom']} style={styles.safeArea}>
+    <SafeAreaView edges={['top', 'bottom']} style={{ flex: 1, backgroundColor: tokens.background }}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
-        style={styles.safeArea}
+        style={{ flex: 1 }}
       >
-        <View style={styles.screen}>
+        <View style={{ flex: 1, backgroundColor: tokens.background }}>
+          {/* Top-left close — real button, real hit target, real icon. */}
           <Pressable
             accessibilityLabel="Close assistant"
             accessibilityRole="button"
@@ -238,23 +275,27 @@ export default function AssistantScreen() {
               }
               router.replace('/today');
             }}
-            style={[styles.closeButton, { top: Math.max(insets.top, 20) + 10 }]}
+            style={[styles.closeButton, { top: Math.max(insets.top, 20) + 6, backgroundColor: palette.chip }]}
           >
-            <Text style={styles.closeGlyph}>×</Text>
+            <Ionicons name="chevron-down" size={22} color={tokens.textMuted} />
           </Pressable>
 
-          <View style={[styles.topRightActions, { top: Math.max(insets.top, 20) + 16, right: 20 }]}>
-            <View style={styles.modeSwitch}>
+          <View style={[styles.topRightActions, { top: Math.max(insets.top, 20) + 8, right: 20 }]}>
+            <View style={[styles.modeSwitch, { backgroundColor: palette.chip, borderColor: tokens.border }]}>
               <ModeButton
-                icon="pulse"
+                icon="mic"
                 active={interactionMode === 'voice'}
                 accessibilityLabel="Voice mode"
+                tokens={tokens}
+                palette={palette}
                 onPress={() => setInteractionMode('voice')}
               />
               <ModeButton
                 icon="chatbubble-ellipses-outline"
                 active={interactionMode === 'chat'}
                 accessibilityLabel="Chat mode"
+                tokens={tokens}
+                palette={palette}
                 onPress={() => {
                   if (recognizing) {
                     stopListening();
@@ -267,9 +308,9 @@ export default function AssistantScreen() {
               accessibilityLabel="Start new assistant session"
               accessibilityRole="button"
               onPress={resetConversation}
-              style={styles.newChatButton}
+              style={[styles.newChatButton, { backgroundColor: palette.chip, borderColor: tokens.border }]}
             >
-              <Ionicons name="refresh" size={18} color="rgba(230,239,255,0.86)" />
+              <Ionicons name="add" size={22} color={tokens.textMuted} />
             </Pressable>
           </View>
 
@@ -281,74 +322,64 @@ export default function AssistantScreen() {
               ]}
               showsVerticalScrollIndicator={false}
             >
-              <VoiceOrb idlePulse={idlePulse} speechPulse={speechPulse} waveShift={waveShift} active={recognizing || processing} scale={orbScale} />
+              <GradientOrb
+                size={ORB_SIZE}
+                scale={orbScale}
+                glowOpacity={glowOpacity}
+                glowScale={glowScale}
+                state={activeState}
+                palette={palette}
+                tokens={tokens}
+              />
 
               <View style={styles.stateRow}>
-                <StateBadge label="Listening" active={recognizing} tone="listening" />
-                <StateBadge label="Cleaning" active={cleaningTranscript} tone="thinking" />
-                <StateBadge label="Thinking" active={processing && !recognizing && !cleaningTranscript} tone="thinking" />
+                <StateBadge label="Listening" active={recognizing} tone="listening" tokens={tokens} palette={palette} />
                 <StateBadge
-                  label={pendingAction ? 'Confirming' : 'Ready'}
-                  active={!recognizing && !processing && !cleaningTranscript}
-                  tone={pendingAction ? 'confirm' : 'idle'}
+                  label="Thinking"
+                  active={isThinking && !recognizing}
+                  tone="thinking"
+                  tokens={tokens}
+                  palette={palette}
                 />
               </View>
 
-              <View style={styles.voiceStageCard}>
-                <Text style={styles.sectionEyebrow}>Live voice</Text>
+              {/* Single live caption strip — not a framed card, not a duplicate. */}
+              <View style={styles.captionStrip}>
                 {transcriptWords.length ? (
-                  <View style={styles.transcriptWrap}>
-                    {transcriptWords.map((word, index) => (
-                      <Animated.View
-                        key={`${word}-${index}`}
-                        style={[
-                          styles.wordWrap,
-                          index === activeWordIndex && styles.activeWordWrap,
-                          index === activeWordIndex && {
-                            transform: [
-                              {
-                                scale: speechPulse.interpolate({
-                                  inputRange: [0, 1],
-                                  outputRange: [1, recognizing ? 1.05 : 1.02],
-                                }),
-                              },
-                            ],
-                          },
-                        ]}
-                      >
-                        <Text style={[styles.word, index === activeWordIndex ? styles.activeWord : styles.pastWord]}>{word}</Text>
-                      </Animated.View>
-                    ))}
+                  <View style={styles.transcriptWrap} accessibilityLiveRegion="polite">
+                    {transcriptWords.map((word, index) => {
+                      const isActiveWord = index === activeWordIndex;
+                      return (
+                        <Text
+                          key={`${word}-${index}`}
+                          style={[
+                            styles.word,
+                            { color: isActiveWord ? tokens.primary : tokens.text },
+                            isActiveWord && { fontWeight: '700' },
+                          ]}
+                        >
+                          {word}
+                        </Text>
+                      );
+                    })}
                   </View>
                 ) : (
                   <View style={styles.emptyVoiceState}>
-                    <Text style={styles.emptyVoiceTitle}>{recognizing ? 'Listening now' : 'Tap the mic to talk'}</Text>
-                    <Text style={styles.emptyVoiceBody}>
+                    <Text style={[styles.emptyVoiceTitle, { color: tokens.text }]}>
+                      {recognizing ? 'Listening…' : 'Tap the mic to talk'}
+                    </Text>
+                    <Text style={[styles.emptyVoiceBody, { color: tokens.textMuted }]}>
                       {recognizing
-                        ? 'Your spoken words will appear here live.'
-                        : 'Speak naturally. I can coach you, ask follow-up questions, and prepare habit changes for confirmation.'}
+                        ? 'Your words appear here as you speak.'
+                        : 'Speak naturally — I can coach you and prepare habit changes for you to confirm.'}
                     </Text>
                   </View>
                 )}
               </View>
 
-              <View style={styles.voiceStageCard}>
-                <Text style={styles.sectionEyebrow}>Final transcript</Text>
-                {cleaningTranscript ? (
-                  <View style={styles.finalTranscriptState}>
-                    <ActivityIndicator color="#8ff0d9" />
-                    <Text style={styles.finalTranscriptBody}>{`Cleaning the final transcript with ${getWhisperModelName()} before I respond.`}</Text>
-                  </View>
-                ) : finalTranscript ? (
-                  <Text style={styles.finalTranscriptText}>{finalTranscript}</Text>
-                ) : (
-                  <Text style={styles.finalTranscriptHint}>
-                    Live words appear above while you speak. After you stop, I clean the final transcript before responding.
-                  </Text>
-                )}
-              </View>
-
-              {speechError ? <Text style={styles.errorText}>{speechError}</Text> : null}
+              {speechError ? (
+                <Text style={[styles.errorText, { color: tokens.danger }]}>{speechError}</Text>
+              ) : null}
 
               {pendingAction ? (
                 <ConfirmationCard
@@ -357,19 +388,19 @@ export default function AssistantScreen() {
                   onCancel={cancelPendingAction}
                   onSelectHabit={(habitId) => void resolveDisambiguation(habitId)}
                   busy={processing}
+                  tokens={tokens}
+                  palette={palette}
                 />
               ) : null}
 
-              <View style={styles.voiceHistoryBlock}>
-                <Text style={styles.sectionEyebrow}>Conversation</Text>
-                {voiceMessages.length ? (
-                  voiceMessages.map((message) => <CompactMessage key={message.id} message={message} />)
-                ) : (
-                  <Text style={styles.emptyConversationText}>
-                    Your recent turns will stay here so you can see what you said, what I understood, and what happens next.
-                  </Text>
-                )}
-              </View>
+              {voiceMessages.length ? (
+                <View style={styles.voiceHistoryBlock}>
+                  <Text style={[styles.sectionEyebrow, { color: tokens.textMuted }]}>Recent</Text>
+                  {voiceMessages.map((message) => (
+                    <CompactMessage key={message.id} message={message} tokens={tokens} palette={palette} />
+                  ))}
+                </View>
+              ) : null}
             </ScrollView>
           ) : (
             <View style={styles.chatLayout}>
@@ -385,12 +416,15 @@ export default function AssistantScreen() {
                 showsVerticalScrollIndicator={false}
               >
                 {messages.length ? (
-                  messages.map((message) => <ThreadMessage key={message.id} message={message} />)
+                  messages.map((message) => (
+                    <ThreadMessage key={message.id} message={message} tokens={tokens} palette={palette} />
+                  ))
                 ) : (
                   <View style={styles.chatEmptyState}>
-                    <Text style={styles.chatEmptyTitle}>Chat with your habit assistant</Text>
-                    <Text style={styles.chatEmptyBody}>
-                      Ask for coaching, talk through a goal, or tell me to create, update, delete, or complete a habit. I will confirm before changing anything.
+                    <Text style={[styles.chatEmptyTitle, { color: tokens.text }]}>Chat with your habit assistant</Text>
+                    <Text style={[styles.chatEmptyBody, { color: tokens.textMuted }]}>
+                      Ask for coaching, talk through a goal, or tell me to create, update, or complete a habit. I'll
+                      confirm before changing anything.
                     </Text>
                   </View>
                 )}
@@ -402,24 +436,21 @@ export default function AssistantScreen() {
                     onCancel={cancelPendingAction}
                     onSelectHabit={(habitId) => void resolveDisambiguation(habitId)}
                     busy={processing}
+                    tokens={tokens}
+                    palette={palette}
                   />
                 ) : null}
 
-                {processing ? (
-                  <View style={styles.typingRow}>
-                    <ActivityIndicator color="#2ed0ff" />
-                    <Text style={styles.typingText}>Thinking through that...</Text>
-                  </View>
-                ) : null}
+                {processing ? <TypingDots tokens={tokens} palette={palette} /> : null}
               </ScrollView>
 
-              <View style={[styles.chatComposer, { paddingBottom: Math.max(insets.bottom, 18) + 10 }]}>
+              <View style={[styles.chatComposer, { paddingBottom: Math.max(insets.bottom, 18) + 10, backgroundColor: palette.composer }]}>
                 <TextInput
                   value={chatDraft}
                   onChangeText={setChatDraft}
-                  placeholder="Ask anything about your habits..."
-                  placeholderTextColor="rgba(133,162,191,0.78)"
-                  style={styles.chatInput}
+                  placeholder="Ask anything about your habits…"
+                  placeholderTextColor={tokens.textMuted}
+                  style={[styles.chatInput, { backgroundColor: tokens.surfaceMuted, color: tokens.text, borderColor: tokens.border }]}
                   multiline
                 />
                 <Pressable
@@ -427,9 +458,13 @@ export default function AssistantScreen() {
                   accessibilityLabel="Send message"
                   onPress={() => void submitChatDraft()}
                   disabled={!chatDraft.trim() || processing}
-                  style={[styles.chatSendButton, (!chatDraft.trim() || processing) && styles.chatSendDisabled]}
+                  style={[
+                    styles.chatSendButton,
+                    { backgroundColor: tokens.primary },
+                    (!chatDraft.trim() || processing) && styles.chatSendDisabled,
+                  ]}
                 >
-                  <Ionicons name="arrow-up" size={20} color="#08111f" />
+                  <Ionicons name="arrow-up" size={20} color={palette.onPrimary} />
                 </Pressable>
               </View>
             </View>
@@ -440,26 +475,25 @@ export default function AssistantScreen() {
               accessibilityLabel={recognizing ? 'Stop listening' : 'Start listening'}
               accessibilityRole="button"
               onPress={recognizing ? stopListening : () => void startListening()}
-              style={[styles.micButton, { bottom: Math.max(insets.bottom, 18) + 28 }]}
+              style={[styles.micButton, { bottom: Math.max(insets.bottom, 18) + 28, backgroundColor: tokens.primary }]}
             >
-              <View style={styles.micGlow} />
-              {recognizing || processing ? <Ionicons name="stop" size={24} color="#ffffff" /> : <Ionicons name="mic" size={28} color="#061322" />}
+              {recognizing || processing ? (
+                <Ionicons name="stop" size={24} color={palette.onPrimary} />
+              ) : (
+                <Ionicons name="mic" size={28} color={palette.onPrimary} />
+              )}
             </Pressable>
           ) : null}
 
-          {resultPopup ? (
-            <View style={styles.popupBackdrop}>
-              <View style={[styles.resultPopup, resultPopup.type === 'failure' && styles.failurePopup]}>
-                <View style={[styles.popupIcon, resultPopup.type === 'failure' && styles.failureIcon]}>
-                  <Ionicons name={resultPopup.type === 'success' ? 'checkmark' : 'alert'} size={20} color="#ffffff" />
-                </View>
-                <Text style={styles.popupTitle}>{resultPopup.title}</Text>
-                <Text style={styles.popupMessage}>{resultPopup.message}</Text>
-                <Pressable onPress={() => setResultPopup(null)} style={styles.popupButton}>
-                  <Text style={styles.popupButtonText}>OK</Text>
-                </Pressable>
-              </View>
-            </View>
+          {toast ? (
+            <ToastView
+              toast={toast}
+              offset={toastOffset}
+              tokens={tokens}
+              palette={palette}
+              topInset={Math.max(insets.top, 20)}
+              onDismiss={dismissToast}
+            />
           ) : null}
         </View>
       </KeyboardAvoidingView>
@@ -475,7 +509,7 @@ export default function AssistantScreen() {
     if (!aiEnabled) {
       const message = 'The assistant is disabled in Settings.';
       addMessage('assistant', message);
-      setResultPopup({ type: 'failure', title: 'Assistant disabled', message });
+      setToast({ type: 'failure', title: 'Assistant disabled', message });
       if (source === 'voice') {
         void speakAgentReply(message);
       }
@@ -484,7 +518,7 @@ export default function AssistantScreen() {
 
     setProcessing(true);
     setSpeechError('');
-    setResultPopup(null);
+    setToast(null);
     addMessage('user', trimmed);
     if (source === 'chat') {
       setTranscript(trimmed);
@@ -543,7 +577,7 @@ export default function AssistantScreen() {
       const message = error instanceof Error ? error.message : 'The assistant could not process that request.';
       setSpeechError(message);
       addMessage('assistant', `I hit a problem: ${message}`);
-      setResultPopup({ type: 'failure', title: 'Action failed', message });
+      setToast({ type: 'failure', title: 'Action failed', message });
       if (source === 'voice') {
         void speakAgentReply(`I hit a problem. ${message}`);
       }
@@ -562,7 +596,7 @@ export default function AssistantScreen() {
       const resultMessage = await executePreview(pendingAction.preview);
       updateAiHistoryStatus(pendingAction.sessionId, 'confirmed');
       addMessage('assistant', resultMessage);
-      setResultPopup({ type: 'success', title: 'Done', message: resultMessage });
+      setToast({ type: 'success', title: 'Done', message: resultMessage });
       setPendingAction(null);
       setSelectedHabitId(undefined);
       void speakAgentReply(resultMessage);
@@ -570,7 +604,7 @@ export default function AssistantScreen() {
       const message = error instanceof Error ? error.message : 'Could not finish that action.';
       updateAiHistoryStatus(pendingAction.sessionId, 'failed');
       addMessage('assistant', `I could not finish that: ${message}`);
-      setResultPopup({ type: 'failure', title: 'Action failed', message });
+      setToast({ type: 'failure', title: 'Action failed', message });
       setSpeechError(message);
     } finally {
       setProcessing(false);
@@ -611,10 +645,9 @@ export default function AssistantScreen() {
     }
     setMessages([]);
     setTranscript('');
-    setFinalTranscript('');
     setCleaningTranscript(false);
     setSpeechError('');
-    setResultPopup(null);
+    setToast(null);
     setPendingAction(null);
     setSelectedHabitId(undefined);
     setChatDraft('');
@@ -681,14 +714,13 @@ export default function AssistantScreen() {
 
   async function startListening() {
     setSpeechError('');
-    setResultPopup(null);
-    setFinalTranscript('');
+    setToast(null);
     setCleaningTranscript(false);
     try {
       if (!ExpoSpeechRecognitionModule.isRecognitionAvailable()) {
         const message = 'Speech recognition is not available on this device.';
         setSpeechError(message);
-        setResultPopup({ type: 'failure', title: 'Speech unavailable', message });
+        setToast({ type: 'failure', title: 'Speech unavailable', message });
         return;
       }
 
@@ -697,11 +729,12 @@ export default function AssistantScreen() {
       if (!permission.granted) {
         const message = 'Microphone permission was not granted.';
         setSpeechError(message);
-        setResultPopup({ type: 'failure', title: 'Permission needed', message });
+        setToast({ type: 'failure', title: 'Permission needed', message });
         return;
       }
 
       Speech.stop();
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       ExpoSpeechRecognitionModule.start({
         lang: 'en-US',
         interimResults: true,
@@ -717,7 +750,7 @@ export default function AssistantScreen() {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not start listening.';
       setSpeechError(message);
-      setResultPopup({ type: 'failure', title: 'Listening failed', message });
+      setToast({ type: 'failure', title: 'Listening failed', message });
     }
   }
 
@@ -766,7 +799,6 @@ export default function AssistantScreen() {
   async function finalizeVoiceTurn(liveTranscript: string) {
     voiceTurnInFlightRef.current = true;
     setCleaningTranscript(false);
-    setFinalTranscript(liveTranscript);
 
     let cleanedTranscript = liveTranscript;
     const audioUri = audioRecordingUriRef.current;
@@ -779,11 +811,9 @@ export default function AssistantScreen() {
           prompt: habits.map((habit) => habit.name).slice(0, 24).join(', '),
         });
         cleanedTranscript = whisperResult.text.trim() || liveTranscript;
-        setFinalTranscript(cleanedTranscript);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Whisper cleanup failed.';
         setSpeechError(message);
-        setFinalTranscript(liveTranscript);
       } finally {
         setCleaningTranscript(false);
       }
@@ -791,6 +821,7 @@ export default function AssistantScreen() {
 
     if (cleanedTranscript && cleanedTranscript !== processedTranscriptRef.current) {
       processedTranscriptRef.current = cleanedTranscript;
+      setTranscript(cleanedTranscript);
       await handleUserTurn(cleanedTranscript, 'voice');
     }
 
@@ -799,37 +830,61 @@ export default function AssistantScreen() {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Components                                                          */
+/* ------------------------------------------------------------------ */
+
 function ConfirmationCard({
   preview,
   onConfirm,
   onCancel,
   onSelectHabit,
   busy,
+  tokens,
+  palette,
 }: {
   preview: AiCommandPreview;
   onConfirm: () => void;
   onCancel: () => void;
   onSelectHabit: (habitId: string) => void;
   busy: boolean;
+  tokens: ReturnType<typeof useThemeTokens>;
+  palette: AssistantPalette;
 }) {
   const destructive = preview.intent === 'delete';
+  const accent = destructive ? tokens.danger : tokens.primary;
 
   return (
-    <View style={[styles.confirmCard, destructive && styles.confirmCardDanger]}>
+    <View
+      style={[
+        styles.confirmCard,
+        {
+          backgroundColor: tokens.surface,
+          borderColor: destructive ? tokens.danger : tokens.border,
+          shadowColor: palette.shadow,
+        },
+      ]}
+    >
       <View style={styles.confirmHeader}>
-        <Text style={[styles.confirmEyebrow, destructive && styles.confirmEyebrowDanger]}>
+        <Text style={[styles.confirmEyebrow, { color: accent }]}>
           {preview.status === 'needs-clarification' ? 'Need one more detail' : 'Review before changing anything'}
         </Text>
-        <Text style={styles.confirmTitle}>{preview.intent === 'delete' ? 'Delete habit' : humanizeIntent(preview.intent)}</Text>
+        <Text style={[styles.confirmTitle, { color: tokens.text }]}>
+          {preview.intent === 'delete' ? 'Delete habit' : humanizeIntent(preview.intent)}
+        </Text>
       </View>
 
-      <Text style={styles.confirmBody}>{preview.preview}</Text>
+      <Text style={[styles.confirmBody, { color: tokens.text }]}>{preview.preview}</Text>
 
       {preview.disambiguationOptions?.length ? (
         <View style={styles.optionWrap}>
           {preview.disambiguationOptions.map((option) => (
-            <Pressable key={option.id} onPress={() => onSelectHabit(option.id)} style={styles.optionChip}>
-              <Text style={styles.optionChipText}>{option.name}</Text>
+            <Pressable
+              key={option.id}
+              onPress={() => onSelectHabit(option.id)}
+              style={[styles.optionChip, { backgroundColor: tokens.primarySoft, borderColor: accent }]}
+            >
+              <Text style={[styles.optionChipText, { color: tokens.text }]}>{option.name}</Text>
             </Pressable>
           ))}
         </View>
@@ -837,11 +892,20 @@ function ConfirmationCard({
 
       {preview.execution ? (
         <View style={styles.confirmActions}>
-          <Pressable onPress={onCancel} style={styles.cancelButton}>
-            <Text style={styles.cancelButtonText}>Cancel</Text>
+          <Pressable
+            onPress={onCancel}
+            style={[styles.cancelButton, { backgroundColor: tokens.surfaceMuted, borderColor: tokens.border }]}
+          >
+            <Text style={[styles.cancelButtonText, { color: tokens.text }]}>Cancel</Text>
           </Pressable>
-          <Pressable onPress={onConfirm} disabled={busy} style={[styles.confirmButton, destructive && styles.confirmDangerButton]}>
-            <Text style={styles.confirmButtonText}>{busy ? 'Working...' : destructive ? 'Delete' : 'Confirm'}</Text>
+          <Pressable
+            onPress={onConfirm}
+            disabled={busy}
+            style={[styles.confirmButton, { backgroundColor: accent }]}
+          >
+            <Text style={[styles.confirmButtonText, { color: palette.onPrimary }]}>
+              {busy ? 'Working…' : destructive ? 'Delete' : 'Confirm'}
+            </Text>
           </Pressable>
         </View>
       ) : null}
@@ -849,31 +913,65 @@ function ConfirmationCard({
   );
 }
 
-function ThreadMessage({ message }: { message: AssistantSessionMessage }) {
+function ThreadMessage({
+  message,
+  tokens,
+  palette,
+}: {
+  message: AssistantSessionMessage;
+  tokens: ReturnType<typeof useThemeTokens>;
+  palette: AssistantPalette;
+}) {
   const isUser = message.role === 'user';
   const isPreview = message.role === 'system-preview';
 
   return (
     <View style={[styles.threadRow, isUser ? styles.threadRowUser : styles.threadRowAssistant]}>
-      {!isUser ? <View style={[styles.messageDot, isPreview && styles.messageDotPreview]} /> : null}
+      {!isUser ? (
+        <View style={[styles.messageDot, { backgroundColor: isPreview ? tokens.warning : tokens.primary }]} />
+      ) : null}
       <View
         style={[
           styles.threadBubble,
-          isUser ? styles.threadBubbleUser : isPreview ? styles.threadBubblePreview : styles.threadBubbleAssistant,
+          isUser
+            ? { backgroundColor: tokens.primary }
+            : isPreview
+              ? { backgroundColor: tokens.surface, borderColor: tokens.warning }
+              : { backgroundColor: tokens.surface, borderColor: tokens.border },
         ]}
       >
-        {!isUser ? <Text style={styles.threadLabel}>{isPreview ? 'Action preview' : 'Assistant'}</Text> : null}
-        <Text style={[styles.threadText, isPreview && styles.threadTextPreview]}>{message.text}</Text>
+        {!isUser ? (
+          <Text style={[styles.threadLabel, { color: isPreview ? tokens.warning : tokens.primary }]}>
+            {isPreview ? 'Action preview' : 'Assistant'}
+          </Text>
+        ) : null}
+        <Text style={[styles.threadText, { color: isUser ? palette.onPrimary : tokens.text }]}>{message.text}</Text>
       </View>
     </View>
   );
 }
 
-function CompactMessage({ message }: { message: AssistantSessionMessage }) {
+function CompactMessage({
+  message,
+  tokens,
+  palette,
+}: {
+  message: AssistantSessionMessage;
+  tokens: ReturnType<typeof useThemeTokens>;
+  palette: AssistantPalette;
+}) {
+  const isUser = message.role === 'user';
   return (
-    <View style={[styles.compactMessage, message.role === 'user' ? styles.compactUser : styles.compactAssistant]}>
-      <Text style={styles.compactRole}>{message.role === 'user' ? 'You' : message.role === 'system-preview' ? 'Preview' : 'Assistant'}</Text>
-      <Text style={styles.compactText}>{message.text}</Text>
+    <View
+      style={[
+        styles.compactMessage,
+        { backgroundColor: isUser ? tokens.primarySoft : tokens.surface, borderColor: tokens.border },
+      ]}
+    >
+      <Text style={[styles.compactRole, { color: isUser ? tokens.primary : palette.label }]}>
+        {message.role === 'user' ? 'You' : message.role === 'system-preview' ? 'Preview' : 'Assistant'}
+      </Text>
+      <Text style={[styles.compactText, { color: tokens.text }]}>{message.text}</Text>
     </View>
   );
 }
@@ -883,11 +981,15 @@ function ModeButton({
   active,
   accessibilityLabel,
   onPress,
+  tokens,
+  palette,
 }: {
   icon: React.ComponentProps<typeof Ionicons>['name'];
   active: boolean;
   accessibilityLabel: string;
   onPress: () => void;
+  tokens: ReturnType<typeof useThemeTokens>;
+  palette: AssistantPalette;
 }) {
   return (
     <Pressable
@@ -895,9 +997,9 @@ function ModeButton({
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
       onPress={onPress}
-      style={[styles.modeButton, active && styles.modeButtonActive]}
+      style={[styles.modeButton, active && { backgroundColor: tokens.primary }]}
     >
-      <Ionicons name={icon} size={18} color={active ? '#071220' : 'rgba(231,240,255,0.72)'} />
+      <Ionicons name={icon} size={18} color={active ? palette.onPrimary : tokens.textMuted} />
     </Pressable>
   );
 }
@@ -906,78 +1008,224 @@ function StateBadge({
   label,
   active,
   tone,
+  tokens,
+  palette,
 }: {
   label: string;
   active: boolean;
-  tone: 'idle' | 'listening' | 'thinking' | 'confirm';
+  tone: 'listening' | 'thinking';
+  tokens: ReturnType<typeof useThemeTokens>;
+  palette: AssistantPalette;
 }) {
+  const color = tone === 'listening' ? tokens.primary : palette.label;
   return (
-    <View style={[styles.stateBadge, active && styles.stateBadgeActive]}>
-      <View
-        style={[
-          styles.stateIcon,
-          tone === 'listening' && styles.stateIconListening,
-          tone === 'thinking' && styles.stateIconThinking,
-          tone === 'confirm' && styles.stateIconConfirm,
-        ]}
-      />
-      <Text style={styles.stateLabel}>{label}</Text>
+    <View
+      accessibilityState={active ? { selected: true } : undefined}
+      style={[
+        styles.stateBadge,
+        {
+          backgroundColor: active ? tokens.primarySoft : tokens.surfaceMuted,
+          borderColor: active ? color : tokens.border,
+        },
+      ]}
+    >
+      <View style={[styles.stateIcon, { backgroundColor: active ? color : tokens.textMuted }]} />
+      <Text style={[styles.stateLabel, { color: active ? color : tokens.textMuted, fontWeight: active ? '600' : '500' }]}>
+        {label}
+      </Text>
     </View>
   );
 }
 
-function VoiceOrb({
-  idlePulse,
-  speechPulse,
-  waveShift,
-  active,
+/**
+ * One cohesive orb: a smooth LinearGradient core that breathes (idle) or
+ * pulses (active), wrapped in a soft animated glow ring. No more stacked
+ * rectangles or asymmetric border-radii.
+ */
+function GradientOrb({
+  size,
   scale,
+  glowOpacity,
+  glowScale,
+  state,
+  palette,
+  tokens,
 }: {
-  idlePulse: Animated.Value;
-  speechPulse: Animated.Value;
-  waveShift: Animated.Value;
-  active: boolean;
+  size: number;
   scale: Animated.AnimatedInterpolation<string | number>;
+  glowOpacity: Animated.Value;
+  glowScale: Animated.AnimatedInterpolation<string | number>;
+  state: 'listening' | 'thinking' | 'confirming' | 'idle';
+  palette: AssistantPalette;
+  tokens: ReturnType<typeof useThemeTokens>;
 }) {
-  const activeScale = active
-    ? speechPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] })
-    : idlePulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.02] });
+  const stateLabel =
+    state === 'listening'
+      ? 'Listening'
+      : state === 'thinking'
+        ? 'Thinking'
+        : state === 'confirming'
+          ? 'Awaiting confirmation'
+          : 'Idle';
 
   return (
-    <Animated.View style={[styles.orbField, { transform: [{ scale }] }]}>
-      <Animated.View style={[styles.dottedRing, { transform: [{ scale: activeScale }] }]} />
-      <Animated.View style={[styles.outerGlow, { opacity: active ? 0.74 : 0.38, transform: [{ scale: activeScale }] }]} />
-      <View style={styles.orb}>
-        <View style={styles.orbTintA} />
-        <View style={styles.orbTintB} />
-        <View style={styles.orbTintC} />
-        <Animated.View
-          style={[
-            styles.waveBand,
-            {
-              transform: [
-                {
-                  translateX: waveShift.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [-18, 18],
-                  }),
-                },
-                {
-                  scaleY: active
-                    ? speechPulse.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1.18] })
-                    : 1,
-                },
-              ],
-            },
-          ]}
+    <View style={styles.orbField} accessibilityLabel={`Assistant orb — ${stateLabel}`} accessibilityRole="image">
+      {/* Soft glow ring — fades/scales in only while active. */}
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.orbGlow,
+          {
+            width: size + 56,
+            height: size + 56,
+            borderRadius: (size + 56) / 2,
+            backgroundColor: tokens.primary,
+            opacity: Animated.multiply(glowOpacity, 0.28),
+            transform: [{ scale: glowScale }],
+          },
+        ]}
+      />
+      {/* Gradient core. */}
+      <Animated.View style={{ width: size, height: size, transform: [{ scale }] }}>
+        <LinearGradient
+          colors={palette.orbGradient}
+          start={{ x: 0.2, y: 0 }}
+          end={{ x: 0.8, y: 1 }}
+          style={{
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderWidth: 1,
+            borderColor: palette.orbBorder,
+          }}
         >
-          <View style={styles.waveLobeLeft} />
-          <View style={styles.waveLobeRight} />
-          <View style={styles.waveThread} />
-        </Animated.View>
-      </View>
+          <Ionicons
+            name={state === 'listening' ? 'mic' : state === 'thinking' ? 'sparkles' : 'mic-outline'}
+            size={size * 0.26}
+            color={palette.onPrimary}
+          />
+        </LinearGradient>
+      </Animated.View>
+    </View>
+  );
+}
+
+/** Three bouncing dots — the post-ChatGPT typing affordance. */
+function TypingDots({
+  tokens,
+  palette,
+}: {
+  tokens: ReturnType<typeof useThemeTokens>;
+  palette: AssistantPalette;
+}) {
+  return (
+    <View style={[styles.typingRow, { backgroundColor: tokens.surface, borderColor: tokens.border }]}>
+      {[0, 1, 2].map((index) => (
+        <BouncingDot key={index} delay={index * 160} color={tokens.primary} />
+      ))}
+      <Text style={[styles.typingText, { color: tokens.textMuted }]}>Thinking…</Text>
+    </View>
+  );
+}
+
+function BouncingDot({ delay, color }: { delay: number; color: string }) {
+  const value = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(delay),
+        Animated.timing(value, { toValue: 1, duration: 360, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(value, { toValue: 0, duration: 360, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [value, delay]);
+
+  const translateY = value.interpolate({ inputRange: [0, 1], outputRange: [0, -5] });
+  const opacity = value.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] });
+
+  return (
+    <Animated.View
+      style={[styles.bouncingDot, { backgroundColor: color, transform: [{ translateY }], opacity }]}
+    />
+  );
+}
+
+function ToastView({
+  toast,
+  offset,
+  tokens,
+  palette,
+  topInset,
+  onDismiss,
+}: {
+  toast: Toast;
+  offset: Animated.Value;
+  tokens: ReturnType<typeof useThemeTokens>;
+  palette: AssistantPalette;
+  topInset: number;
+  onDismiss: () => void;
+}) {
+  const isFailure = toast.type === 'failure';
+  const accent = isFailure ? tokens.danger : tokens.success;
+  const translateY = offset.interpolate({ inputRange: [0, 1], outputRange: [-120, 0] });
+
+  return (
+    <Animated.View
+      accessibilityRole="alert"
+      accessibilityLiveRegion="polite"
+      pointerEvents="box-none"
+      style={[styles.toastWrap, { top: topInset + 12, transform: [{ translateY }] }]}
+    >
+      <Pressable onPress={onDismiss} style={[styles.toastCard, { backgroundColor: tokens.surface, borderColor: accent, shadowColor: palette.shadow }]}>
+        <View style={[styles.toastIcon, { backgroundColor: accent }]}>
+          <Ionicons name={isFailure ? 'alert' : 'checkmark'} size={16} color={palette.onPrimary} />
+        </View>
+        <View style={styles.toastBody}>
+          <Text style={[styles.toastTitle, { color: tokens.text }]}>{toast.title}</Text>
+          <Text style={[styles.toastMessage, { color: tokens.textMuted }]} numberOfLines={3}>
+            {toast.message}
+          </Text>
+        </View>
+      </Pressable>
     </Animated.View>
   );
+}
+
+/* ------------------------------------------------------------------ */
+/* Helpers                                                             */
+/* ------------------------------------------------------------------ */
+
+type AssistantPalette = {
+  onPrimary: string;
+  label: string;
+  chip: string;
+  composer: string;
+  shadow: string;
+  orbBorder: string;
+  orbGradient: [string, string, string];
+};
+
+function buildAssistantPalette(tokens: ReturnType<typeof useThemeTokens>): AssistantPalette {
+  // onPrimary text color: dark on the bright accent in light mode, near-black elsewhere.
+  const onPrimary = tokens.mode === 'light' ? '#ffffff' : '#04111f';
+  return {
+    onPrimary,
+    label: tokens.mode === 'light' ? '#0f766e' : tokens.teal,
+    chip: tokens.mode === 'light' ? 'rgba(15,23,42,0.04)' : 'rgba(255,255,255,0.04)',
+    composer: tokens.mode === 'light' ? 'rgba(244,247,251,0.94)' : 'rgba(7,17,31,0.96)',
+    shadow: tokens.mode === 'light' ? '#0f1f3a' : '#000000',
+    orbBorder: tokens.mode === 'light' ? 'rgba(37,99,235,0.45)' : 'rgba(96,165,250,0.55)',
+    orbGradient:
+      tokens.mode === 'light'
+        ? ['#2563eb', '#3b82f6', '#60a5fa']
+        : tokens.mode === 'amoled'
+          ? ['#0f172a', '#1e293b', '#334155']
+          : ['#1e3a8a', '#1d4ed8', '#2563eb'],
+  };
 }
 
 function getTranscriptWords(value: string) {
@@ -1009,28 +1257,15 @@ function humanizeIntent(intent: AiCommandPreview['intent']) {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#04101d',
-  },
-  screen: {
-    flex: 1,
-    backgroundColor: '#04101d',
-  },
   closeButton: {
     position: 'absolute',
-    left: 18,
+    left: 16,
     zIndex: 5,
-    width: 48,
-    height: 48,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  closeGlyph: {
-    color: 'rgba(226,236,248,0.82)',
-    fontSize: 48,
-    lineHeight: 48,
-    fontWeight: '300',
   },
   topRightActions: {
     position: 'absolute',
@@ -1043,135 +1278,38 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 4,
-    borderRadius: 20,
-    backgroundColor: 'rgba(10,23,38,0.92)',
+    borderRadius: 22,
     borderWidth: 1,
-    borderColor: 'rgba(98,130,159,0.22)',
+    gap: 2,
   },
   modeButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  modeButtonActive: {
-    backgroundColor: '#8ff0d9',
-  },
   newChatButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(10,23,38,0.92)',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
   voiceContent: {
     alignItems: 'center',
-    paddingHorizontal: 18,
-    gap: 18,
+    paddingHorizontal: 20,
+    gap: 20,
   },
   orbField: {
-    width: 280,
-    height: 280,
+    width: ORB_SIZE + 80,
+    height: ORB_SIZE + 80,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  dottedRing: {
+  orbGlow: {
     position: 'absolute',
-    width: 276,
-    height: 276,
-    borderRadius: 138,
-    borderColor: 'rgba(77,193,255,0.42)',
-    borderWidth: 2,
-    borderStyle: 'dotted',
-  },
-  outerGlow: {
-    position: 'absolute',
-    width: 236,
-    height: 236,
-    borderRadius: 118,
-    borderWidth: 14,
-    borderColor: 'rgba(53,175,255,0.16)',
-    shadowColor: '#2ec8ff',
-    shadowOpacity: 0.8,
-    shadowRadius: 24,
-  },
-  orb: {
-    width: 194,
-    height: 194,
-    borderRadius: 97,
-    overflow: 'hidden',
-    backgroundColor: '#09254d',
-    borderWidth: 2,
-    borderColor: '#5fe5ff',
-  },
-  orbTintA: {
-    position: 'absolute',
-    left: -22,
-    top: -12,
-    width: 132,
-    height: 174,
-    borderRadius: 80,
-    backgroundColor: 'rgba(63,214,255,0.36)',
-  },
-  orbTintB: {
-    position: 'absolute',
-    right: -22,
-    bottom: -18,
-    width: 150,
-    height: 176,
-    borderRadius: 90,
-    backgroundColor: 'rgba(43,143,255,0.48)',
-  },
-  orbTintC: {
-    position: 'absolute',
-    left: 32,
-    bottom: -38,
-    width: 130,
-    height: 110,
-    borderRadius: 60,
-    backgroundColor: 'rgba(143,240,217,0.36)',
-  },
-  waveBand: {
-    position: 'absolute',
-    left: 16,
-    top: 66,
-    width: 162,
-    height: 66,
-  },
-  waveLobeLeft: {
-    position: 'absolute',
-    left: 0,
-    top: 16,
-    width: 98,
-    height: 44,
-    borderTopLeftRadius: 80,
-    borderTopRightRadius: 80,
-    borderBottomLeftRadius: 28,
-    borderBottomRightRadius: 60,
-    backgroundColor: 'rgba(78,188,255,0.64)',
-  },
-  waveLobeRight: {
-    position: 'absolute',
-    right: 0,
-    top: 16,
-    width: 98,
-    height: 44,
-    borderTopLeftRadius: 80,
-    borderTopRightRadius: 80,
-    borderBottomLeftRadius: 60,
-    borderBottomRightRadius: 28,
-    backgroundColor: 'rgba(143,240,217,0.74)',
-  },
-  waveThread: {
-    position: 'absolute',
-    left: 2,
-    right: 2,
-    top: 34,
-    height: 2,
-    borderRadius: 99,
-    backgroundColor: '#d7fbff',
   },
   stateRow: {
     width: '100%',
@@ -1183,159 +1321,83 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    opacity: 0.6,
-  },
-  stateBadgeActive: {
-    opacity: 1,
+    borderWidth: 1,
   },
   stateIcon: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#89a9c7',
-  },
-  stateIconListening: {
-    backgroundColor: '#2ed0ff',
-  },
-  stateIconThinking: {
-    backgroundColor: '#8ff0d9',
-  },
-  stateIconConfirm: {
-    backgroundColor: '#ffd166',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   stateLabel: {
-    color: '#e8f1fb',
     fontSize: 13,
-    fontWeight: '700',
   },
-  voiceStageCard: {
+  captionStrip: {
     width: '100%',
-    borderRadius: 24,
-    padding: 18,
-    backgroundColor: '#0b1d31',
-    borderWidth: 1,
-    borderColor: 'rgba(113,154,188,0.18)',
-    gap: 12,
-  },
-  sectionEyebrow: {
-    color: '#8ff0d9',
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    minHeight: 96,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
   },
   transcriptWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    rowGap: 10,
-  },
-  wordWrap: {
-    minHeight: 38,
     justifyContent: 'center',
-  },
-  activeWordWrap: {
-    paddingHorizontal: 10,
-    borderRadius: 16,
-    backgroundColor: '#2ed0ff',
+    gap: 6,
+    rowGap: 4,
   },
   word: {
-    fontSize: 21,
-    lineHeight: 27,
-    fontWeight: '800',
-  },
-  pastWord: {
-    color: '#f5fbff',
-  },
-  activeWord: {
-    color: '#04101d',
+    fontSize: 19,
+    lineHeight: 26,
+    fontWeight: '500',
   },
   emptyVoiceState: {
-    gap: 8,
+    gap: 6,
+    alignItems: 'center',
   },
   emptyVoiceTitle: {
-    color: '#f3f8fd',
-    fontSize: 24,
-    lineHeight: 30,
-    fontWeight: '800',
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '700',
   },
   emptyVoiceBody: {
-    color: '#9bb4cb',
-    fontSize: 15,
-    lineHeight: 22,
-    fontWeight: '600',
-  },
-  finalTranscriptState: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  finalTranscriptBody: {
-    flex: 1,
-    color: '#dbe8f4',
     fontSize: 14,
     lineHeight: 20,
-    fontWeight: '600',
-  },
-  finalTranscriptText: {
-    color: '#f4fbff',
-    fontSize: 16,
-    lineHeight: 24,
-    fontWeight: '700',
-  },
-  finalTranscriptHint: {
-    color: '#93acc4',
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: '600',
+    fontWeight: '400',
+    textAlign: 'center',
   },
   errorText: {
-    color: '#ff9d9d',
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '500',
     textAlign: 'center',
   },
   voiceHistoryBlock: {
     width: '100%',
-    borderRadius: 24,
-    padding: 18,
-    backgroundColor: '#081827',
-    borderWidth: 1,
-    borderColor: 'rgba(113,154,188,0.16)',
-    gap: 10,
+    gap: 8,
+  },
+  sectionEyebrow: {
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
   },
   compactMessage: {
-    borderRadius: 16,
+    borderRadius: 14,
     padding: 12,
-    gap: 6,
-  },
-  compactUser: {
-    backgroundColor: 'rgba(46,208,255,0.12)',
-  },
-  compactAssistant: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    gap: 4,
+    borderWidth: 1,
   },
   compactRole: {
-    color: '#8ff0d9',
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '600',
     textTransform: 'uppercase',
   },
   compactText: {
-    color: '#edf5ff',
     fontSize: 14,
     lineHeight: 20,
-    fontWeight: '600',
-  },
-  emptyConversationText: {
-    color: '#93acc4',
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: '600',
+    fontWeight: '400',
   },
   chatLayout: {
     flex: 1,
@@ -1354,49 +1416,28 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   messageDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
     marginTop: 12,
-    backgroundColor: '#8ff0d9',
-  },
-  messageDotPreview: {
-    backgroundColor: '#ffd166',
   },
   threadBubble: {
     maxWidth: '86%',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 13,
-  },
-  threadBubbleUser: {
-    backgroundColor: '#2ed0ff',
-  },
-  threadBubbleAssistant: {
-    backgroundColor: '#0b1d31',
+    borderRadius: 18,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
     borderWidth: 1,
-    borderColor: 'rgba(113,154,188,0.2)',
-  },
-  threadBubblePreview: {
-    backgroundColor: '#2b230b',
-    borderWidth: 1,
-    borderColor: 'rgba(255,209,102,0.28)',
   },
   threadLabel: {
-    color: '#8ff0d9',
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '600',
     textTransform: 'uppercase',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   threadText: {
-    color: '#edf5ff',
     fontSize: 15,
     lineHeight: 22,
-    fontWeight: '600',
-  },
-  threadTextPreview: {
-    color: '#fff4cc',
+    fontWeight: '400',
   },
   chatEmptyState: {
     minHeight: 380,
@@ -1406,54 +1447,46 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   chatEmptyTitle: {
-    color: '#f3f8fd',
-    fontSize: 24,
-    lineHeight: 30,
-    fontWeight: '900',
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '700',
     textAlign: 'center',
   },
   chatEmptyBody: {
-    color: '#9bb4cb',
     fontSize: 15,
     lineHeight: 22,
-    fontWeight: '600',
+    fontWeight: '400',
     textAlign: 'center',
   },
   confirmCard: {
-    borderRadius: 24,
+    width: '100%',
+    borderRadius: 20,
     padding: 18,
-    backgroundColor: '#102338',
     borderWidth: 1,
-    borderColor: 'rgba(113,154,188,0.2)',
     gap: 14,
-  },
-  confirmCardDanger: {
-    backgroundColor: '#2a1315',
-    borderColor: 'rgba(255,128,128,0.28)',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 8,
   },
   confirmHeader: {
     gap: 4,
   },
   confirmEyebrow: {
-    color: '#8ff0d9',
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '600',
     textTransform: 'uppercase',
-  },
-  confirmEyebrowDanger: {
-    color: '#ffb4b4',
+    letterSpacing: 0.4,
   },
   confirmTitle: {
-    color: '#f4f8fd',
-    fontSize: 20,
-    lineHeight: 26,
-    fontWeight: '800',
+    fontSize: 19,
+    lineHeight: 24,
+    fontWeight: '700',
   },
   confirmBody: {
-    color: '#dbe8f4',
     fontSize: 15,
     lineHeight: 22,
-    fontWeight: '600',
+    fontWeight: '400',
   },
   optionWrap: {
     flexDirection: 'row',
@@ -1464,14 +1497,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 999,
-    backgroundColor: 'rgba(46,208,255,0.12)',
     borderWidth: 1,
-    borderColor: 'rgba(46,208,255,0.2)',
   },
   optionChipText: {
-    color: '#dff8ff',
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '500',
   },
   confirmActions: {
     flexDirection: 'row',
@@ -1480,42 +1510,45 @@ const styles = StyleSheet.create({
   cancelButton: {
     flex: 1,
     minHeight: 50,
-    borderRadius: 16,
+    borderRadius: 14,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.06)',
   },
   cancelButtonText: {
-    color: '#edf5ff',
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   confirmButton: {
     flex: 1,
     minHeight: 50,
-    borderRadius: 16,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#8ff0d9',
-  },
-  confirmDangerButton: {
-    backgroundColor: '#ff8b8b',
   },
   confirmButtonText: {
-    color: '#05101d',
     fontSize: 15,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   typingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 4,
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignSelf: 'flex-start',
+    maxWidth: '70%',
+  },
+  bouncingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   typingText: {
-    color: '#9bb4cb',
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '400',
   },
   chatComposer: {
     position: 'absolute',
@@ -1527,20 +1560,18 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 16,
     paddingTop: 10,
-    backgroundColor: 'rgba(4,16,29,0.96)',
   },
   chatInput: {
     flex: 1,
     minHeight: 54,
     maxHeight: 132,
-    borderRadius: 20,
+    borderRadius: 18,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    backgroundColor: '#0b1d31',
-    color: '#edf5ff',
+    borderWidth: 1,
     fontSize: 15,
     lineHeight: 22,
-    fontWeight: '600',
+    fontWeight: '400',
   },
   chatSendButton: {
     width: 52,
@@ -1548,7 +1579,6 @@ const styles = StyleSheet.create({
     borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#8ff0d9',
   },
   chatSendDisabled: {
     opacity: 0.5,
@@ -1556,76 +1586,52 @@ const styles = StyleSheet.create({
   micButton: {
     position: 'absolute',
     alignSelf: 'center',
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    backgroundColor: '#8ff0d9',
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#8ff0d9',
-    shadowOpacity: 0.42,
+    shadowOpacity: 0.4,
     shadowRadius: 18,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
   },
-  micGlow: {
-    ...StyleSheet.absoluteFill,
-    borderRadius: 38,
+  toastWrap: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    zIndex: 10,
+  },
+  toastCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 16,
+    padding: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.38)',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.22,
+    shadowRadius: 18,
+    elevation: 10,
   },
-  popupBackdrop: {
-    ...StyleSheet.absoluteFill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    paddingHorizontal: 24,
-  },
-  resultPopup: {
-    width: '100%',
-    maxWidth: 340,
-    borderRadius: 24,
-    padding: 22,
-    backgroundColor: '#0d2237',
-    alignItems: 'center',
-    gap: 10,
-  },
-  failurePopup: {
-    backgroundColor: '#2a1315',
-  },
-  popupIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#16c47f',
+  toastIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  failureIcon: {
-    backgroundColor: '#ff8b8b',
+  toastBody: {
+    flex: 1,
+    gap: 2,
   },
-  popupTitle: {
-    color: '#f3f8fd',
-    fontSize: 20,
-    fontWeight: '800',
-  },
-  popupMessage: {
-    color: '#dbe8f4',
+  toastTitle: {
     fontSize: 15,
-    lineHeight: 22,
-    textAlign: 'center',
-    fontWeight: '600',
+    fontWeight: '700',
   },
-  popupButton: {
-    marginTop: 4,
-    minWidth: 110,
-    minHeight: 46,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#8ff0d9',
-  },
-  popupButtonText: {
-    color: '#05101d',
-    fontSize: 15,
-    fontWeight: '900',
+  toastMessage: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '400',
   },
 });
