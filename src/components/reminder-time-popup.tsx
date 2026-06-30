@@ -13,9 +13,10 @@ type ReminderTimePopupProps = {
 export function ReminderTimePopup({ initialTime, inputSurface, onCancel, onConfirm }: ReminderTimePopupProps) {
   const tokens = useThemeTokens();
   const isLight = tokens.mode === 'light';
-  const [time, setTime] = useState(initialTime || '08:00');
+  const [initialHour, initialMinute] = normalizeTimeParts(initialTime || '08:00');
+  const [hourInput, setHourInput] = useState(initialHour);
+  const [minuteInput, setMinuteInput] = useState(initialMinute);
   const [activeTimePart, setActiveTimePart] = useState<'hour' | 'minute' | null>(null);
-  const [hour, minute] = normalizeTimeParts(time);
 
   return (
     <View style={styles.popupLayer}>
@@ -26,12 +27,15 @@ export function ReminderTimePopup({ initialTime, inputSurface, onCancel, onConfi
           <View>
             <TextInput
               accessibilityLabel="Reminder hour"
-              keyboardType="numeric"
+              keyboardType="number-pad"
               maxLength={2}
-              value={hour}
+              value={hourInput}
               onFocus={() => setActiveTimePart('hour')}
-              onBlur={() => setActiveTimePart(null)}
-              onChangeText={(nextHour) => setTime(`${nextHour}:${minute}`)}
+              onBlur={() => {
+                setActiveTimePart(null);
+                setHourInput(normalizeLooseTimePart(hourInput));
+              }}
+              onChangeText={(nextHour) => setHourInput(sanitizeTimeInput(nextHour))}
               style={[
                 styles.timeBox,
                 activeTimePart === 'hour' ? styles.activeTimeBox : null,
@@ -48,12 +52,15 @@ export function ReminderTimePopup({ initialTime, inputSurface, onCancel, onConfi
           <View>
             <TextInput
               accessibilityLabel="Reminder minute"
-              keyboardType="numeric"
+              keyboardType="number-pad"
               maxLength={2}
-              value={minute}
+              value={minuteInput}
               onFocus={() => setActiveTimePart('minute')}
-              onBlur={() => setActiveTimePart(null)}
-              onChangeText={(nextMinute) => setTime(`${hour}:${nextMinute}`)}
+              onBlur={() => {
+                setActiveTimePart(null);
+                setMinuteInput(normalizeLooseTimePart(minuteInput));
+              }}
+              onChangeText={(nextMinute) => setMinuteInput(sanitizeTimeInput(nextMinute))}
               style={[
                 styles.timeBox,
                 activeTimePart === 'minute' ? styles.activeTimeBox : null,
@@ -73,7 +80,10 @@ export function ReminderTimePopup({ initialTime, inputSurface, onCancel, onConfi
             <Pressable onPress={onCancel} style={styles.popupTextAction}>
               <Text style={[styles.popupActionText, { color: tokens.text }]}>Cancel</Text>
             </Pressable>
-            <Pressable onPress={() => onConfirm(normalizeTime(time))} style={styles.popupTextAction}>
+            <Pressable
+              onPress={() => onConfirm(normalizeTime(`${hourInput}:${minuteInput}`))}
+              style={styles.popupTextAction}
+            >
               <Text style={[styles.popupActionText, { color: tokens.text }]}>OK</Text>
             </Pressable>
           </View>
@@ -93,6 +103,19 @@ export function normalizeTime(value: string) {
   const hour = Math.min(23, Math.max(0, Number.parseInt(rawHour, 10) || 0));
   const minute = Math.min(59, Math.max(0, Number.parseInt(rawMinute, 10) || 0));
   return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+}
+
+function sanitizeTimeInput(value: string) {
+  return value.replace(/\D/g, '').slice(0, 2);
+}
+
+function normalizeLooseTimePart(value: string) {
+  const numeric = sanitizeTimeInput(value);
+  if (!numeric) {
+    return '00';
+  }
+
+  return numeric.padStart(2, '0').slice(-2);
 }
 
 const styles = StyleSheet.create({

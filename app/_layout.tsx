@@ -43,6 +43,7 @@ export default Sentry.wrap(function RootLayout() {
           <Stack.Screen name="habit/edit/[id]" />
           <Stack.Screen name="today-progress" />
           <Stack.Screen name="archive" />
+          <Stack.Screen name="premium" />
         </Stack>
       </SafeAreaProvider>
     </GestureHandlerRootView>

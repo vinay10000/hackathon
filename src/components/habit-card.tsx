@@ -42,16 +42,19 @@ export function HabitCard({ habit, dateKey, onOpen, onEdit, onArchive, onDelete 
   }
 
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${habit.name}, ${progressText}`}
+    <View
       style={[styles.card, { backgroundColor: tokens.surface, borderColor: tokens.border }]}
-      onPress={() => {
-        setMenuOpen(false);
-        onOpen();
-      }}
     >
-      <View style={styles.row}>
+      <View style={[styles.row, menuOpen && styles.rowMenuOpen]}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${habit.name}, ${progressText}`}
+          style={styles.openArea}
+          onPress={() => {
+            setMenuOpen(false);
+            onOpen();
+          }}
+        >
         <View style={styles.titleWrap}>
           <View style={[styles.iconChip, { backgroundColor: `${habit.color}22` }]}>
             <Ionicons name={habit.icon as React.ComponentProps<typeof Ionicons>['name']} size={22} color={habit.color} />
@@ -65,6 +68,7 @@ export function HabitCard({ habit, dateKey, onOpen, onEdit, onArchive, onDelete 
             </Text>
           </View>
         </View>
+        </Pressable>
 
         <View style={styles.actionButtons}>
           <Pressable
@@ -80,7 +84,7 @@ export function HabitCard({ habit, dateKey, onOpen, onEdit, onArchive, onDelete 
             <Ionicons name={log?.status === 'completed' ? 'checkmark' : 'add'} size={18} color={log?.status === 'completed' ? '#ffffff' : habit.color} />
           </Pressable>
 
-          <View style={styles.menuWrap}>
+          <View style={[styles.menuWrap, menuOpen && styles.menuWrapOpen]}>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Open actions for ${habit.name}`}
@@ -125,7 +129,15 @@ export function HabitCard({ habit, dateKey, onOpen, onEdit, onArchive, onDelete 
         </View>
       </View>
 
-      <View style={[styles.progressRow, { backgroundColor: tokens.surfaceMuted }]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Open ${habit.name}`}
+        style={[styles.progressRow, { backgroundColor: tokens.surfaceMuted }]}
+        onPress={() => {
+          setMenuOpen(false);
+          onOpen();
+        }}
+      >
         <View style={styles.progressCopy}>
           <Text numberOfLines={1} style={[styles.progressTop, { color: log?.status === 'completed' ? habit.color : tokens.text }]}>
             {progressText}
@@ -139,7 +151,7 @@ export function HabitCard({ habit, dateKey, onOpen, onEdit, onArchive, onDelete 
             {habit.kind === 'duration' ? 'Duration' : habit.kind === 'count' ? 'Count' : 'Today'}
           </Text>
         </View>
-      </View>
+      </Pressable>
 
       {(habit.kind === 'count' || habit.kind === 'duration') && (
         <View style={styles.metricRow}>
@@ -164,7 +176,7 @@ export function HabitCard({ habit, dateKey, onOpen, onEdit, onArchive, onDelete 
           </Pressable>
         </View>
       )}
-    </Pressable>
+    </View>
   );
 }
 
@@ -199,6 +211,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+  },
+  rowMenuOpen: {
+    zIndex: 30,
+  },
+  openArea: {
+    flex: 1,
+    minWidth: 0,
   },
   titleWrap: {
     flex: 1,
@@ -278,6 +297,9 @@ const styles = StyleSheet.create({
   menuWrap: {
     position: 'relative',
   },
+  menuWrapOpen: {
+    zIndex: 40,
+  },
   menuButton: {
     width: 38,
     height: 38,
@@ -288,14 +310,14 @@ const styles = StyleSheet.create({
   },
   menuPopup: {
     position: 'absolute',
-    top: 0,
-    right: 44,
-    width: 108,
+    top: 44,
+    right: 0,
+    width: 132,
     borderRadius: 14,
     borderWidth: 1,
     paddingVertical: 6,
-    zIndex: 20,
-    elevation: 10,
+    zIndex: 50,
+    elevation: 16,
   },
   menuItem: {
     minHeight: 34,

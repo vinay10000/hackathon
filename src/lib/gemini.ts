@@ -1,6 +1,6 @@
 import { httpsCallable } from 'firebase/functions';
 
-import { firebaseFunctions } from '@/src/lib/firebase';
+import { firebaseAuth, firebaseFunctions } from '@/src/lib/firebase';
 
 const GEMINI_MODEL = process.env.EXPO_PUBLIC_GEMINI_MODEL ?? 'gemini-3.1-flash-lite-preview';
 
@@ -28,6 +28,12 @@ export async function generateGeminiText(prompt: string, options: GenerateTextOp
   const trimmedPrompt = prompt.trim();
   if (!trimmedPrompt) {
     throw new Error('Missing Gemini prompt.');
+  }
+
+  // The callable backend requires Firebase auth. Skip the network call entirely
+  // for guest/web sessions so the assistant can fall back to local rules cleanly.
+  if (!firebaseAuth.currentUser?.uid) {
+    throw new Error('Gemini auth required.');
   }
 
   const response = await generateGeminiTextCallable({

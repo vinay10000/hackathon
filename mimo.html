@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HabitAI — Speak. Track. Grow.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#080c14;--bg2:#0c1220;--bg3:#111a2e;
+  --surface:#0f1829;--surface2:#152036;
+  --border:rgba(100,160,230,0.08);--border-h:rgba(100,160,230,0.15);
+  --text:#dce8f8;--text2:#8aa2c4;--text3:#5a7499;
+  --amber:#f0a050;--amber-soft:rgba(240,160,80,0.12);
+  --mint:#6ee7b7;--mint-soft:rgba(110,231,183,0.1);
+  --rose:#f472b6;--rose-soft:rgba(244,114,182,0.08);
+  --sky:#7dd3fc;--sky-soft:rgba(125,211,252,0.08);
+  --violet:#c4b5fd;--violet-soft:rgba(196,181,253,0.08);
+  --serif:'DM Serif Display',Georgia,serif;
+  --sans:'Inter',system-ui,sans-serif;
+  --mono:'JetBrains Mono',monospace;
+  --ease:cubic-bezier(.16,1,.3,1);
+}
+html{scroll-behavior:smooth;overflow-x:hidden}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+a{text-decoration:none;color:inherit}
+
+/* ═══ GRAIN ═══ */
+body::after{content:'';position:fixed;inset:0;z-index:9999;pointer-events:none;opacity:.025;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");background-size:180px}
+
+/* ═══ SCROLLBAR ═══ */
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:rgba(110,231,183,0.15);border-radius:2px}
+
+/* ═══ NAV ═══ */
+nav{position:fixed;top:0;left:0;right:0;z-index:50;padding:20px 48px;display:flex;align-items:center;justify-content:space-between;transition:all .5s var(--ease)}
+nav.solid{padding:14px 48px;background:rgba(8,12,20,0.92);backdrop-filter:blur(16px);border-bottom:1px solid var(--border)}
+.brand{display:flex;align-items:center;gap:10px;font-family:var(--serif);font-size:1.2rem;letter-spacing:-.01em}
+.brand-icon{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,var(--amber),var(--mint));display:grid;place-items:center;position:relative}
+.brand-icon::after{content:'✓';font-size:13px;color:var(--bg);font-weight:700}
+.nav-links{display:flex;align-items:center;gap:28px}
+.nav-links a{font-size:.85rem;font-weight:500;color:var(--text2);transition:color .25s;position:relative}
+.nav-links a::after{content:'';position:absolute;bottom:-2px;left:0;width:0;height:1px;background:var(--amber);transition:width .3s var(--ease)}
+.nav-links a:hover{color:var(--text)}
+.nav-links a:hover::after{width:100%}
+.nav-btn{padding:8px 20px;border-radius:8px;font-size:.82rem;font-weight:600;background:var(--amber);color:var(--bg);transition:transform .2s var(--ease),box-shadow .3s}
+.nav-btn:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(240,160,80,0.3)}
+.nav-btn:active{transform:scale(0.96)}
+
+/* ═══ HERO ═══ */
+.hero{min-height:100vh;display:grid;grid-template-columns:1.15fr .85fr;align-items:center;gap:48px;padding:140px 6vw 80px;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:-200px;right:-200px;width:800px;height:800px;border-radius:50%;background:radial-gradient(circle,rgba(240,160,80,0.06),transparent 65%);pointer-events:none}
+.hero::after{content:'';position:absolute;bottom:-300px;left:-100px;width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(110,231,183,0.04),transparent 65%);pointer-events:none}
+
+/* Grid pattern */
+.hero-grid{position:absolute;inset:0;background-image:linear-gradient(rgba(240,160,80,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(240,160,80,0.03) 1px,transparent 1px);background-size:64px 64px;mask-image:radial-gradient(ellipse 55% 45% at 60% 50%,black,transparent);-webkit-mask-image:radial-gradient(ellipse 55% 45% at 60% 50%,black,transparent)}
+
+.hero-copy{position:relative;z-index:2}
+.eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;color:var(--amber);display:flex;align-items:center;gap:10px;margin-bottom:24px}
+.eyebrow::before{content:'';width:28px;height:1px;background:var(--amber)}
+.hero h1{font-family:var(--serif);font-weight:400;font-size:clamp(2.8rem,6vw,5.2rem);line-height:1.02;letter-spacing:-.02em;margin-bottom:24px}
+.hero h1 em{font-style:italic;color:var(--amber)}
+.hero-sub{font-size:1.1rem;color:var(--text2);max-width:38ch;margin-bottom:36px;line-height:1.7}
+.hero-actions{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+
+/* Buttons */
+.btn-p{display:inline-flex;align-items:center;gap:8px;padding:14px 30px;border-radius:10px;font-size:.92rem;font-weight:600;background:var(--amber);color:var(--bg);transition:transform .2s var(--ease),box-shadow .3s;position:relative;overflow:hidden}
+.btn-p:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(240,160,80,0.3)}
+.btn-p:active{transform:scale(0.96)}
+.btn-p .ripple{position:absolute;border-radius:50%;background:rgba(255,255,255,0.25);transform:scale(0);animation:rip .5s ease-out;pointer-events:none}
+@keyframes rip{to{transform:scale(4);opacity:0}}
+.btn-g{display:inline-flex;align-items:center;gap:8px;font-size:.92rem;font-weight:500;color:var(--text2);transition:color .25s}
+.btn-g:hover{color:var(--text)}
+.btn-g .play{width:36px;height:36px;border-radius:50%;border:1.5px solid var(--border-h);display:grid;place-items:center;transition:border-color .25s,background .25s}
+.btn-g:hover .play{border-color:var(--amber);background:var(--amber-soft)}
+
+/* ═══ PHONE ═══ */
+.hero-vis{position:relative;display:grid;place-items:center;z-index:2}
+.phone{width:270px;height:555px;border-radius:38px;background:linear-gradient(165deg,#1a2035,#0c1220);padding:10px;position:relative;box-shadow:0 50px 100px -20px rgba(0,0,0,0.7),0 0 0 1px rgba(255,255,255,0.04);transition:transform .1s linear;transform-style:preserve-3d}
+.phone-screen{width:100%;height:100%;border-radius:28px;background:linear-gradient(180deg,#f8f6f1,#f0ede6);overflow:hidden;position:relative;padding:24px 18px}
+.phone-notch{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:90px;height:22px;background:#0c1220;border-radius:0 0 14px 14px;z-index:3}
+.s-date{font-family:var(--mono);font-size:.58rem;letter-spacing:.14em;text-transform:uppercase;color:#8a7e6e;margin-top:16px}
+.s-title{font-family:var(--serif);font-size:1.4rem;letter-spacing:-.02em;margin:3px 0 16px;color:#2a2520}
+.s-ring-row{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+.ring-svg{width:56px;height:56px;transform:rotate(-90deg)}
+.ring-svg circle{fill:none;stroke-width:5;stroke-linecap:round}
+.ring-bg{stroke:#e8e3da}
+.ring-fg{stroke:var(--amber);stroke-dasharray:147;stroke-dashoffset:147;animation:ringDraw 2s var(--ease) .8s forwards}
+@keyframes ringDraw{to{stroke-dashoffset:44}}
+.ring-info small{font-family:var(--mono);font-size:.55rem;letter-spacing:.1em;color:#8a7e6e;display:block;text-transform:uppercase}
+.ring-info b{font-family:var(--serif);font-size:1.15rem;color:#2a2520}
+.habit{display:flex;align-items:center;gap:10px;padding:10px 11px;border-radius:13px;background:rgba(0,0,0,0.03);margin-bottom:7px}
+.habit-ico{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;font-size:.8rem;flex-shrink:0}
+.habit-nm{flex:1;font-size:.78rem;color:#2a2520;line-height:1.2;font-weight:500}
+.habit-nm small{display:block;font-family:var(--mono);font-size:.5rem;color:#8a7e6e;letter-spacing:.04em;margin-top:1px}
+.chk{width:20px;height:20px;border-radius:50%;border:1.5px solid #d4cfc6;flex-shrink:0;transition:all .3s var(--ease);cursor:pointer;position:relative}
+.chk.on{background:var(--mint);border-color:var(--mint)}
+.chk.on::after{content:'';position:absolute;left:5.5px;top:2.5px;width:4.5px;height:8px;border:solid var(--bg);border-width:0 1.8px 1.8px 0;transform:rotate(45deg)}
+.chk:hover{border-color:var(--amber)}
+.phone-voice{position:absolute;bottom:18px;left:16px;right:16px;background:#1a2035;border-radius:16px;padding:12px 14px;display:flex;align-items:center;gap:10px}
+.pv-wave{display:flex;gap:2.5px;align-items:center}
+.pv-wave i{width:2.5px;background:var(--amber);border-radius:2px;animation:wv 1s ease-in-out infinite}
+.pv-wave i:nth-child(1){height:8px;animation-delay:0s}
+.pv-wave i:nth-child(2){height:15px;animation-delay:.12s}
+.pv-wave i:nth-child(3){height:10px;animation-delay:.24s}
+.pv-wave i:nth-child(4){height:18px;animation-delay:.08s}
+.pv-wave i:nth-child(5){height:9px;animation-delay:.2s}
+@keyframes wv{0%,100%{transform:scaleY(.45)}50%{transform:scaleY(1)}}
+.pv-txt{color:#f0ede6;font-family:var(--mono);font-size:.56rem;line-height:1.35;letter-spacing:.01em}
+.pv-txt em{color:var(--amber);font-style:normal}
+
+/* Floating tags */
+.ftag{position:absolute;font-family:var(--mono);font-size:.64rem;background:var(--bg2);border:1px solid var(--border-h);border-radius:24px;padding:7px 14px;display:flex;align-items:center;gap:6px;box-shadow:0 12px 32px rgba(0,0,0,0.4);animation:ftagBob 5s ease-in-out infinite;white-space:nowrap}
+.ftag b{color:var(--amber);font-weight:600}
+.ftag-1{top:6%;right:-8%;animation-delay:0s}
+.ftag-2{bottom:16%;left:-10%;animation-delay:1.2s}
+@keyframes ftagBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+
+/* ═══ MARQUEE ═══ */
+.marquee{border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:16px 0;overflow:hidden;background:var(--bg2);position:relative;z-index:1}
+.marquee-track{display:flex;gap:48px;width:max-content;animation:marqueeScroll 30s linear infinite}
+.marquee-track span{font-family:var(--serif);font-style:italic;font-size:1.15rem;color:var(--text3);white-space:nowrap;display:flex;align-items:center;gap:48px}
+.marquee-track span::after{content:'◆';color:var(--amber);font-size:.55rem;font-style:normal}
+@keyframes marqueeScroll{to{transform:translateX(-50%)}}
+
+/* ═══ SECTIONS ═══ */
+section{position:relative;z-index:1}
+.sec-block{padding:110px 6vw}
+.sec-head{max-width:620px;margin-bottom:60px}
+.sec-num{font-family:var(--mono);font-size:.72rem;letter-spacing:.18em;color:var(--amber);text-transform:uppercase;display:block;margin-bottom:14px}
+.sec-head h2{font-family:var(--serif);font-weight:400;font-size:clamp(2rem,4.2vw,3.2rem);letter-spacing:-.015em;line-height:1.08;margin-bottom:14px}
+.sec-head h2 em{font-style:italic;color:var(--amber)}
+.sec-head p{color:var(--text2);font-size:1.05rem;max-width:48ch}
+
+/* ═══ FEATURES ═══ */
+.feat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);border:1px solid var(--border)}
+.feat{background:var(--bg);padding:38px 30px;transition:background .35s;position:relative}
+.feat:hover{background:var(--bg2)}
+.feat::after{content:'';position:absolute;bottom:0;left:30px;right:30px;height:1px;background:linear-gradient(90deg,transparent,var(--amber),transparent);opacity:0;transition:opacity .4s}
+.feat:hover::after{opacity:.3}
+.feat-ico{width:44px;height:44px;border-radius:11px;display:grid;place-items:center;margin-bottom:20px;font-size:1.2rem}
+.feat h3{font-family:var(--serif);font-size:1.2rem;margin-bottom:8px}
+.feat p{color:var(--text2);font-size:.9rem;line-height:1.55}
+.feat .meta{font-family:var(--mono);font-size:.6rem;letter-spacing:.1em;color:var(--text3);text-transform:uppercase;margin-top:16px;display:block}
+
+/* ═══ VOICE SPLIT ═══ */
+.voice-split{display:grid;grid-template-columns:1fr 1fr;gap:60px;align-items:center;background:linear-gradient(165deg,var(--surface),var(--bg3));border:1px solid var(--border);border-radius:24px;padding:64px 5vw;margin:0 5vw;position:relative;overflow:hidden}
+.voice-split::before{content:'';position:absolute;top:-150px;right:-150px;width:500px;height:500px;border-radius:50%;background:radial-gradient(circle,rgba(240,160,80,0.04),transparent 65%);pointer-events:none}
+.voice-split h2{font-family:var(--serif);font-size:clamp(1.9rem,3.5vw,3rem);letter-spacing:-.015em;line-height:1.1;margin:14px 0 20px}
+.voice-split h2 em{font-style:italic;color:var(--amber)}
+.voice-split>p,.voice-split .vs-text p{color:var(--text2);font-size:1.02rem;max-width:42ch;margin-bottom:28px}
+.convo{display:flex;flex-direction:column;gap:12px}
+.bub{padding:14px 18px;border-radius:18px;max-width:82%;font-size:.92rem;line-height:1.5;animation:bubIn .6s var(--ease) both}
+@keyframes bubIn{from{opacity:0;transform:translateY(12px)}}
+.bub.user{align-self:flex-end;background:var(--amber);color:var(--bg);border-bottom-right-radius:5px}
+.bub.ai{align-self:flex-start;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-bottom-left-radius:5px;color:var(--text)}
+.bub.ai b{color:var(--amber);font-weight:500}
+.bub .who{font-family:var(--mono);font-size:.52rem;letter-spacing:.14em;text-transform:uppercase;opacity:.5;display:block;margin-bottom:4px}
+
+/* ═══ PRINCIPLES ═══ */
+.princ-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:48px 64px}
+.princ{border-top:1px solid var(--text3);padding-top:22px;transition:border-color .3s}
+.princ:hover{border-color:var(--amber)}
+.princ-num{font-family:var(--mono);font-size:.68rem;letter-spacing:.16em;color:var(--amber);display:block;margin-bottom:12px}
+.princ h4{font-family:var(--serif);font-size:1.35rem;margin-bottom:8px}
+.princ p{color:var(--text2);font-size:.95rem;line-height:1.6}
+
+/* ═══ CTA ═══ */
+.cta{text-align:center;padding:130px 6vw}
+.cta h2{font-family:var(--serif);font-size:clamp(2.4rem,5.5vw,4.6rem);letter-spacing:-.02em;line-height:1.02;margin-bottom:22px}
+.cta h2 em{font-style:italic;color:var(--amber)}
+.cta p{color:var(--text2);font-size:1.1rem;max-width:38ch;margin:0 auto 36px}
+.cta .hero-actions{justify-content:center}
+
+/* ═══ FOOTER ═══ */
+footer{border-top:1px solid var(--border);padding:50px 6vw 36px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:28px;position:relative;z-index:1}
+.foot-brand p{color:var(--text3);margin-top:12px;max-width:24ch;font-size:.9rem}
+.foot-cols{display:flex;gap:60px;flex-wrap:wrap}
+.foot-col b{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--text3);display:block;margin-bottom:12px}
+.foot-col a{display:block;color:var(--text2);font-size:.9rem;margin-bottom:8px;transition:color .25s}
+.foot-col a:hover{color:var(--amber)}
+.foot-bottom{width:100%;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-top:28px;padding-top:20px;border-top:1px solid var(--border);font-family:var(--mono);font-size:.66rem;color:var(--text3);letter-spacing:.04em}
+
+/* ═══ REVEALS ═══ */
+.rv{opacity:0;transform:translateY(24px);transition:opacity .8s var(--ease),transform .8s var(--ease)}
+.rv.in{opacity:1;transform:none}
+.rv-d1{transition-delay:.06s}.rv-d2{transition-delay:.12s}.rv-d3{transition-delay:.18s}
+
+/* ═══ REDUCED MOTION ═══ */
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}.rv{opacity:1;transform:none}}
+
+/* ═══ RESPONSIVE ═══ */
+@media(max-width:960px){.hero{grid-template-columns:1fr;padding-top:110px;text-align:left}.hero-vis{display:none}.feat-grid{grid-template-columns:1fr}.voice-split{grid-template-columns:1fr;gap:40px;padding:48px 6vw;margin:0 3vw}.princ-grid{grid-template-columns:1fr;gap:36px}}
+@media(max-width:640px){nav{padding:14px 20px}.nav-links a:not(.nav-btn){display:none}section,.sec-block{padding:72px 5vw}.cta{padding:80px 5vw}footer{padding:36px 5vw 28px}.foot-cols{gap:36px}.phone{width:240px;height:490px}.ftag{display:none}}
+</style>
+</head>
+<body>
+
+<nav id="nav">
+  <div class="brand"><span class="brand-icon"></span>HabitAI</div>
+  <div class="nav-links">
+    <a href="#features">Features</a>
+    <a href="#voice">Voice AI</a>
+    <a href="#values">Privacy</a>
+    <a href="#start" class="nav-btn">Get the app</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="hero-grid"></div>
+  <div class="hero-copy">
+    <div class="eyebrow">Local-first &middot; Voice-driven &middot; Calm</div>
+    <h1>Quiet habits,<br><em>kept.</em></h1>
+    <p class="hero-sub">A habit tracker that listens. Speak, tap, or simply show up. Everything stays on your device.</p>
+    <div class="hero-actions">
+      <a href="#start" class="btn-p" data-ripple>Start tracking free</a>
+      <a href="#voice" class="btn-g"><span class="play">▶</span> See how it works</a>
+    </div>
+  </div>
+  <div class="hero-vis">
+    <div class="phone" id="phone">
+      <div class="phone-notch"></div>
+      <div class="phone-screen">
+        <div class="s-date">Saturday &middot; June 13</div>
+        <div class="s-title">Today</div>
+        <div class="s-ring-row">
+          <svg class="ring-svg" viewBox="0 0 62 62"><circle class="ring-bg" cx="31" cy="31" r="23.5"/><circle class="ring-fg" cx="31" cy="31" r="23.5"/></svg>
+          <div class="ring-info"><small>Completed</small><b>4 / 6</b></div>
+        </div>
+        <div class="habit"><div class="habit-ico" style="background:var(--amber-soft)">🧘</div><div class="habit-nm">Morning stillness<small>10 MIN &middot; STREAK 21</small></div><div class="chk on" data-tick></div></div>
+        <div class="habit"><div class="habit-ico" style="background:var(--sky-soft)">💧</div><div class="habit-nm">Water<small>6 / 8 GLASSES</small></div><div class="chk on" data-tick></div></div>
+        <div class="habit"><div class="habit-ico" style="background:var(--mint-soft)">📖</div><div class="habit-nm">Read<small>20 MIN &middot; STREAK 8</small></div><div class="chk" data-tick></div></div>
+        <div class="habit"><div class="habit-ico" style="background:var(--rose-soft)">🏃</div><div class="habit-nm">Run<small>3 MI &middot; STREAK 12</small></div><div class="chk on" data-tick></div></div>
+        <div class="phone-voice">
+          <div class="pv-wave"><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="pv-txt"><em>"Mark reading done"</em><br>Logged &middot; streak 9 🔥</div>
+        </div>
+      </div>
+    </div>
+    <div class="ftag ftag-1">🔒 Stays <b>on device</b></div>
+    <div class="ftag ftag-2">🔥 <b>21-day</b> streak</div>
+  </div>
+</header>
+
+<!-- MARQUEE -->
+<div class="marquee">
+  <div class="marquee-track">
+    <span>One-tap check-ins</span><span>Speak to your day</span><span>Private by default</span><span>Streaks that hold</span><span>Calm, not noisy</span>
+    <span>One-tap check-ins</span><span>Speak to your day</span><span>Private by default</span><span>Streaks that hold</span><span>Calm, not noisy</span>
+  </div>
+</div>
+
+<!-- FEATURES -->
+<section class="sec-block" id="features">
+  <div class="sec-head rv">
+    <span class="sec-num">01 &mdash; What you get</span>
+    <h2>Low friction in, <em>lasting habits</em> out.</h2>
+    <p>Every feature is built around a single idea: make showing up effortless, then get out of your way.</p>
+  </div>
+  <div class="feat-grid rv">
+    <div class="feat"><div class="feat-ico" style="background:var(--amber-soft)">👆</div><h3>One-tap tracking</h3><p>Complete, skip, count, or log duration in a single touch. Add a note when the moment calls for it.</p><span class="meta">Daily &middot; Recurring</span></div>
+    <div class="feat"><div class="feat-ico" style="background:var(--mint-soft)">🗓️</div><h3>Calendar & streaks</h3><p>See weekly trends, per-habit analytics, and streaks that reward consistency, not perfection.</p><span class="meta">History &middot; Insights</span></div>
+    <div class="feat"><div class="feat-ico" style="background:var(--sky-soft)">🔔</div><h3>Gentle reminders</h3><p>Per-habit local notifications scheduled exactly when you need a nudge. Quiet, never naggy.</p><span class="meta">On-device</span></div>
+    <div class="feat"><div class="feat-ico" style="background:var(--rose-soft)">🎨</div><h3>Themes that rest</h3><p>Light, Dark, AMOLED, and System. Real theme tokens, with colors and icons you choose per habit.</p><span class="meta">4 modes</span></div>
+    <div class="feat"><div class="feat-ico" style="background:var(--violet-soft)">📱</div><h3>Home-screen widget</h3><p>A native Android widget reading your real data. Tick a habit straight from your home screen.</p><span class="meta">Writes back</span></div>
+    <div class="feat"><div class="feat-ico" style="background:var(--mint-soft)">🛡️</div><h3>Guest & sign-in</h3><p>Start instantly as a guest, or sign in with Google. Your tracking core lives locally, always.</p><span class="meta">Local-first</span></div>
+  </div>
+</section>
+
+<!-- VOICE -->
+<section id="voice">
+  <div class="voice-split rv">
+    <div class="vs-text">
+      <span class="sec-num">02 &mdash; The assistant</span>
+      <h2>Just <em>say</em> what you did.</h2>
+      <p>Voice or chat, your choice. Live transcription, Whisper cleanup, and multi-turn clarification mean it understands you the first time. Every action is confirmation-first, so nothing changes without your nod.</p>
+      <a href="#start" class="btn-p" data-ripple>Try the assistant</a>
+    </div>
+    <div class="convo">
+      <div class="bub user" style="animation-delay:.1s"><span class="who">You &middot; voice</span>I went for a 3 mile run this morning</div>
+      <div class="bub ai" style="animation-delay:.4s"><span class="who">HabitAI</span>Got it &mdash; log <b>Run</b> at <b>3 miles</b> for today and keep your <b>12-day streak</b>? ✓</div>
+      <div class="bub user" style="animation-delay:.8s"><span class="who">You</span>Yes, and remind me tomorrow at 7</div>
+      <div class="bub ai" style="animation-delay:1.1s"><span class="who">HabitAI</span>Done. Logged, and a reminder is set for <b>7:00 AM</b> tomorrow.</div>
+    </div>
+  </div>
+</section>
+
+<!-- VALUES -->
+<section class="sec-block" id="values">
+  <div class="sec-head rv">
+    <span class="sec-num">03 &mdash; What we stand for</span>
+    <h2>Built to be <em>trusted</em>, not to be addictive.</h2>
+    <p>Success isn't your screen time. It's whether the habit stuck.</p>
+  </div>
+  <div class="princ-grid rv">
+    <div class="princ"><span class="princ-num">①</span><h4>Your data stays yours</h4><p>Local-first architecture means your habits live on your device. The cloud is opt-in, never assumed.</p></div>
+    <div class="princ"><span class="princ-num">②</span><h4>Quiet, not noisy</h4><p>No streaks-anxiety, no dark patterns, no manufactured urgency. Just a clear view of your day.</p></div>
+    <div class="princ"><span class="princ-num">③</span><h4>Speak, don't type</h4><p>For when typing is friction. The assistant turns a spoken sentence into a confirmed action.</p></div>
+    <div class="princ"><span class="princ-num">④</span><h4>No lock-in</h4><p>Export your data, archive and restore habits, delete your account. You're never trapped.</p></div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta" id="start">
+  <div class="rv">
+    <div class="eyebrow" style="justify-content:center">Free to start &middot; No account needed</div>
+    <h2>Begin a habit<br>worth <em>keeping.</em></h2>
+    <p>Open the app, name one thing you want to do daily, and check it off. That's the whole onboarding.</p>
+    <div class="hero-actions">
+      <a href="#" class="btn-p" data-ripple>Download for Android</a>
+      <a href="#" class="btn-g"><span class="play">⌘</span> Join the iOS waitlist</a>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="foot-brand">
+    <div class="brand"><span class="brand-icon"></span>HabitAI</div>
+    <p>Quiet habits, kept. Local-first habit tracking with a voice.</p>
+  </div>
+  <div class="foot-cols">
+    <div class="foot-col"><b>Product</b><a href="#features">Features</a><a href="#voice">Voice assistant</a><a href="#values">Privacy</a><a href="#">Widget</a></div>
+    <div class="foot-col"><b>Company</b><a href="#">About</a><a href="#">Roadmap</a><a href="#">Support</a><a href="#">Privacy policy</a></div>
+    <div class="foot-col"><b>Get it</b><a href="#">Android</a><a href="#">iOS waitlist</a><a href="#">Changelog</a></div>
+  </div>
+  <div class="foot-bottom"><span>&copy; 2026 HabitAI &middot; Made calmly</span><span>LOCAL-FIRST &middot; VOICE-DRIVEN &middot; PRIVATE</span></div>
+</footer>
+
+<script>
+/* NAV */
+const nav=document.getElementById('nav');
+window.addEventListener('scroll',()=>nav.classList.toggle('solid',window.scrollY>50),{passive:true});
+
+/* REVEAL */
+const rvs=document.querySelectorAll('.rv');
+const rvObs=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');rvObs.unobserve(e.target)}})},{threshold:.1,rootMargin:'0px 0px -20px 0px'});
+rvs.forEach(el=>rvObs.observe(el));
+
+/* PHONE PARALLAX */
+const phone=document.getElementById('phone');
+if(phone&&!matchMedia('(pointer:coarse)').matches){
+  let tx=0,ty=0,cx=0,cy=0;
+  document.addEventListener('mousemove',e=>{
+    tx=(e.clientX/window.innerWidth-.5)*10;
+    ty=(e.clientY/window.innerHeight-.5)*10;
+  });
+  !function loop(){cx+=(tx-cx)*.08;cy+=(ty-cy)*.08;phone.style.transform=`rotate(-3deg) perspective(800px) rotateY(${cx}deg) rotateX(${-cy}deg)`;requestAnimationFrame(loop)}();
+}
+
+/* RIPPLE */
+document.querySelectorAll('[data-ripple]').forEach(b=>{
+  b.addEventListener('click',e=>{const r=b.getBoundingClientRect(),rip=document.createElement('span');rip.className='ripple';const s=Math.max(r.width,r.height);rip.style.width=rip.style.height=s+'px';rip.style.left=(e.clientX-r.left-s/2)+'px';rip.style.top=(e.clientY-r.top-s/2)+'px';b.appendChild(rip);setTimeout(()=>rip.remove(),500)});
+});
+
+/* PHONE CHECK */
+document.querySelectorAll('[data-tick]').forEach(c=>c.addEventListener('click',()=>c.classList.toggle('on')));
+
+/* ANCHORS */
+document.querySelectorAll('a[href^="#"]').forEach(a=>a.addEventListener('click',e=>{const t=document.querySelector(a.getAttribute('href'));if(t){e.preventDefault();t.scrollIntoView({behavior:'smooth',block:'start'})}}));
+</script>
+</body>
+</html>

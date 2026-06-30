@@ -50,6 +50,7 @@ const kindOptions: { label: string; value: HabitKind; icon: IconName; hint: stri
 ];
 
 const categoryOptions = ['Wellness', 'Focus', 'Fitness', 'Learning', 'Sleep', 'Home'];
+const canUseNativeDriver = Platform.OS !== 'web';
 
 export function NewHabitSheet({ visible, onClose }: NewHabitSheetProps) {
   const tokens = useThemeTokens();
@@ -95,7 +96,7 @@ export function NewHabitSheet({ visible, onClose }: NewHabitSheetProps) {
 
           Animated.spring(translateY, {
             toValue: 0,
-            useNativeDriver: true,
+            useNativeDriver: canUseNativeDriver,
             tension: 85,
             friction: 12,
           }).start();
@@ -126,7 +127,7 @@ export function NewHabitSheet({ visible, onClose }: NewHabitSheetProps) {
         toValue: 1,
         tension: 90,
         friction: 14,
-        useNativeDriver: true,
+        useNativeDriver: canUseNativeDriver,
       }).start();
     }
   }, [customDaysMotion, repeatMode, visible]);
@@ -136,7 +137,7 @@ export function NewHabitSheet({ visible, onClose }: NewHabitSheetProps) {
     Animated.timing(translateY, {
       toValue: sheetHeight,
       duration: 180,
-      useNativeDriver: true,
+      useNativeDriver: canUseNativeDriver,
     }).start(() => onClose());
   }
 

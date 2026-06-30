@@ -1,0 +1,1067 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HabitAI — All Screens</title>
+<script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.development.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.development.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone@7.23.0/babel.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: radial-gradient(ellipse 80% 50% at 50% -10%, #1a1040 0%, #0a0a0b 70%);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  #root { padding: 48px 24px; }
+  .app-header {
+    text-align: center;
+    margin-bottom: 56px;
+    padding: 0 24px;
+  }
+  .app-header h1 {
+    font-family: 'Instrument Serif', Georgia, serif;
+    font-size: clamp(2.8rem, 6vw + 0.5rem, 4.2rem);
+    font-weight: 400;
+    background: linear-gradient(180deg, #f5f5f7 40%, rgba(167,139,250,0.7));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
+  }
+  .app-header p {
+    color: #80808a;
+    font-size: 0.95rem;
+    margin-top: 12px;
+    max-width: 480px;
+    margin-left: auto;
+    margin-right: auto;
+    line-height: 1.6;
+  }
+  .app-header .kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #a78bfa;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 16px;
+    background: rgba(167,139,250,0.1);
+    padding: 5px 14px;
+    border-radius: 99px;
+    border: 1px solid rgba(167,139,250,0.15);
+  }
+  .phone-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 40px;
+    padding: 24px;
+    align-items: flex-start;
+    justify-content: center;
+    max-width: 1440px;
+    margin: 0 auto;
+  }
+  .phone-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    transition: transform 0.25s ease-out;
+  }
+  .phone-item:hover { transform: translateY(-4px); }
+  .phone-label {
+    font-size: 0.78rem;
+    font-style: italic;
+    color: #80808a;
+    font-weight: 500;
+    text-align: center;
+    max-width: 200px;
+  }
+  .phone-label strong {
+    color: #c4b5fd;
+    font-style: normal;
+    font-weight: 600;
+  }
+  .section-divider {
+    font-size: 0.65rem;
+    color: #4a4a5a;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-weight: 600;
+    text-align: center;
+    padding: 8px 0;
+    position: relative;
+  }
+  .section-divider::before, .section-divider::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: 80px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(167,139,250,0.2), transparent);
+  }
+  .section-divider::before { left: calc(50% + 100px); }
+  .section-divider::after { right: calc(50% + 100px); }
+  ::-webkit-scrollbar { width: 2px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(167,139,250,0.2); border-radius: 99px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useCallback, useRef, useEffect, createContext, useContext } = React;
+
+/* ======================== IosFrame ======================== */
+const iosFrameStyles = {
+  wrapper: {
+    display: 'inline-block', padding: 10, background: 'linear-gradient(145deg, #1a1a22, #000)', borderRadius: 54,
+    boxShadow: '0 0 0 1px #2a2a3a, 0 40px 80px -20px rgba(0,0,0,0.7), 0 0 60px -16px rgba(167,139,250,0.12)',
+    position: 'relative',
+  },
+  screen: { position: 'relative', borderRadius: 44, overflow: 'hidden', background: '#000' },
+  statusBar: {
+    position: 'absolute', top: 0, left: 0, right: 0, height: 50,
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '0 28px 0 28px', fontSize: 15, fontWeight: 700,
+    fontFamily: '-apple-system, "SF Pro Text", sans-serif', zIndex: 20, pointerEvents: 'none',
+  },
+  dynamicIsland: { position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', width: 116, height: 34, background: '#000', borderRadius: 999, zIndex: 30 },
+  statusIcons: { display: 'flex', alignItems: 'center', gap: 5 },
+  signalIcon: { display: 'flex', alignItems: 'flex-end', gap: 1.5, height: 11 },
+  signalBar: { width: 3, background: 'currentColor', borderRadius: 1 },
+  batteryIcon: { width: 24, height: 11, border: '1.5px solid currentColor', borderRadius: 2.5, padding: 1, position: 'relative', opacity: 0.8 },
+  batteryCap: { position: 'absolute', top: 2.5, right: -2.8, width: 2, height: 5.5, background: 'currentColor', borderRadius: '0 1px 1px 0' },
+  content: { position: 'absolute', top: 50, left: 0, right: 0, bottom: 30, overflow: 'auto' },
+  homeIndicator: { position: 'absolute', bottom: 8, left: '50%', transform: 'translateX(-50%)', width: 134, height: 5, background: 'rgba(255,255,255,0.4)', borderRadius: 999, zIndex: 10 },
+};
+
+function IosFrame({ children, width = 375, height = 812, time = '9:41', battery = 85 }) {
+  return (
+    <div style={iosFrameStyles.wrapper}>
+      <div style={{ ...iosFrameStyles.screen, width, height, background: '#000' }}>
+        <div style={{ ...iosFrameStyles.statusBar, color: '#fff' }}>
+          <span style={{ fontWeight: 700 }}>{time}</span>
+          <div style={iosFrameStyles.statusIcons}>
+            <div style={iosFrameStyles.signalIcon}>
+              {[3.5, 5.5, 8, 10].map((h, i) => <div key={i} style={{ ...iosFrameStyles.signalBar, height: h }} />)}
+            </div>
+            <svg width="14" height="11" viewBox="0 0 14 11" fill="none"><path d="M7 10.5a1 1 0 100-2 1 1 0 000 2z" fill="#fff"/><path d="M2.5 6.5a6.5 6.5 0 019 0" stroke="#fff" strokeWidth="1.2" fill="none" strokeLinecap="round"/><path d="M.5 3.8a10.5 10.5 0 0113 0" stroke="#fff" strokeWidth="1.2" fill="none" strokeLinecap="round" opacity="0.5"/></svg>
+            <div style={iosFrameStyles.batteryIcon}><div style={{ width: `${battery}%`, height: '100%', background: '#fff', borderRadius: 1.5 }} /><div style={iosFrameStyles.batteryCap} /></div>
+          </div>
+        </div>
+        <div style={iosFrameStyles.dynamicIsland} />
+        <div style={iosFrameStyles.content}>{children}</div>
+        <div style={iosFrameStyles.homeIndicator} />
+      </div>
+    </div>
+  );
+}
+
+/* ======================== Design Tokens ======================== */
+const T = {
+  bg: '#0a0a0b', surface: '#121216', surface2: '#1a1a20', surface3: '#22222a',
+  text: '#f0f0f4', text2: '#a0a0b0', text3: '#606070',
+  violet: '#a78bfa', violetDeep: '#7c3aed', violetGlow: 'rgba(167,139,250,0.08)',
+  teal: '#5eead4', tealDeep: '#0d9488', tealGlow: 'rgba(94,234,212,0.08)',
+  amber: '#fb923c', danger: '#fb7185', success: '#86efac', warning: '#fbbf24',
+  border: 'rgba(255,255,255,0.06)', border2: 'rgba(255,255,255,0.10)',
+  rad: { sm: '8px', md: '12px', lg: '16px', xl: '20px', xxl: '24px', full: '999px' },
+  serif: "'Instrument Serif', Georgia, serif",
+  sans: "'Inter', system-ui, -apple-system, sans-serif",
+  ease: 'cubic-bezier(0.16, 1, 0.3, 1)',
+};
+
+const HABIT_COLORS = ['#2563eb', '#14b8a6', '#f97316', '#ef4444', '#8b5cf6', '#f59e0b'];
+const HABIT_ICONS = { star: '\u2605', flame: '\u2661', book: '\u2630', water: '\u2248', moon: '\u263E', heart: '\u2665', leaf: '\u2618', flash: '\u26A1' };
+
+const SAMPLE_HABITS = [
+  { id: 'h1', name: 'Morning Meditation', kind: 'duration', category: 'mindfulness', icon: 'moon', color: '#8b5cf6', targetValue: 10, unit: 'min', schedule: { kind: 'daily' }, streak: 12, logs: [1,1,1,1,1,1,0,1,1,1,1,1,1,1] },
+  { id: 'h2', name: 'Read 20 Pages', kind: 'count', category: 'learning', icon: 'book', color: '#2563eb', targetValue: 20, unit: 'pages', schedule: { kind: 'daily' }, streak: 7, logs: [1,1,1,0,1,1,1,1,0,1,1,1,1,1] },
+  { id: 'h3', name: 'Drink Water', kind: 'count', category: 'health', icon: 'water', color: '#14b8a6', targetValue: 8, unit: 'glasses', schedule: { kind: 'daily' }, streak: 5, logs: [1,1,1,1,1,1,1,1,1,1,1,1,1,1] },
+  { id: 'h4', name: 'No Social Scrolling', kind: 'yesNo', category: 'focus', icon: 'flash', color: '#f59e0b', schedule: { kind: 'daily' }, streak: 3, logs: [1,0,1,1,1,0,1,1,1,0,1,1,1,1] },
+  { id: 'h5', name: 'Evening Walk', kind: 'duration', category: 'fitness', icon: 'heart', color: '#ef4444', targetValue: 20, unit: 'min', schedule: { kind: 'daily' }, streak: 2, logs: [1,1,1,1,1,1,1,1,1,1,1,1,1,1] },
+];
+
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const TODAY = new Date();
+
+/* ======================== shared components ======================== */
+function CheckCircle({ done, size = 22 }) {
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: '50%', flexShrink: 0,
+      border: `2px solid ${done ? T.teal : T.border2}`,
+      background: done ? `radial-gradient(circle at 35% 35%, ${T.teal}, ${T.tealDeep})` : 'transparent',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      transition: `all 0.2s ${T.ease}`,
+      boxShadow: done ? `0 0 12px ${T.tealGlow}` : 'none',
+    }}>
+      {done && <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 6l2 2 4-4" stroke="#000" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+    </div>
+  );
+}
+
+function StatBadge({ label, value, hue }) {
+  return (
+    <div style={{
+      padding: '10px 0', borderRadius: T.rad.lg,
+      background: `linear-gradient(145deg, ${T.surface}, ${T.surface2})`,
+      border: `1px solid ${T.border}`, textAlign: 'center', flex: 1,
+    }}>
+      <div style={{ fontSize: 22, fontWeight: 600, fontFamily: T.serif, color: hue, lineHeight: 1.1 }}>{value}</div>
+      <div style={{ fontSize: 10, color: T.text3, marginTop: 3, fontWeight: 500 }}>{label}</div>
+    </div>
+  );
+}
+
+function HabitRow({ habit, onClick, dense }) {
+  const done = habit.logs[habit.logs.length-1];
+  return (
+    <div onClick={onClick} style={{
+      padding: dense ? '10px 12px' : '12px 14px', background: T.surface,
+      borderRadius: T.rad.lg, border: `1px solid ${T.border}`,
+      display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer',
+      transition: `all 0.2s ${T.ease}`,
+    }}
+      onMouseEnter={e => { e.currentTarget.style.background = T.surface2; e.currentTarget.style.borderColor = 'rgba(167,139,250,0.15)'; }}
+      onMouseLeave={e => { e.currentTarget.style.background = T.surface; e.currentTarget.style.borderColor = T.border; }}>
+      <div style={{
+        width: 30, height: 30, borderRadius: T.rad.sm, flexShrink: 0,
+        background: done ? `${habit.color}22` : T.surface3,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13,
+        color: done ? habit.color : T.text3,
+      }}>{HABIT_ICONS[habit.icon] || '\u2605'}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: dense ? 12 : 14, fontWeight: 600, color: T.text, lineHeight: 1.2 }}>{habit.name}</div>
+        <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>
+          <span style={{ color: habit.streak >= 7 ? T.violet : T.text3 }}>{habit.streak}-day streak</span>
+        </div>
+      </div>
+      <CheckCircle done={done} size={dense ? 18 : 22} />
+    </div>
+  );
+}
+
+/* ======================== Screen: Today ======================== */
+function TodayScreen({ onNavigate }) {
+  const completedToday = SAMPLE_HABITS.filter(h => h.logs[h.logs.length-1]).length;
+  const totalToday = SAMPLE_HABITS.length;
+  const pct = Math.round(completedToday / totalToday * 100);
+  const streak = Math.max(...SAMPLE_HABITS.map(h => h.streak));
+  const greeting = TODAY.getHours() < 12 ? 'Good morning' : TODAY.getHours() < 18 ? 'Good afternoon' : 'Good evening';
+  const [hovers, setHovers] = useState({});
+
+  const weekDays = WEEKDAYS.map((d, i) => {
+    const active = i === TODAY.getDay() - 1 || (i === 6 && TODAY.getDay() === 0);
+    return { label: d, active, completed: [1,0,1,1,1,0,1][i] === 1 };
+  });
+
+  return (
+    <div style={{ height: '100%', background: `radial-gradient(ellipse 120% 40% at 50% -10%, ${T.violetGlow}, transparent)`, display: 'flex', flexDirection: 'column' }}>
+      {/* Header */}
+      <div style={{ padding: '16px 20px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <div style={{ fontSize: 12, color: T.text3, fontWeight: 500 }}>{greeting}</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: T.text, letterSpacing: '-0.03em', lineHeight: 1.2 }}>Alex</div>
+        </div>
+        <div style={{
+          width: 38, height: 38, borderRadius: '50%',
+          background: `linear-gradient(135deg, ${T.violet}, ${T.violetDeep})`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#000', fontSize: 15, fontWeight: 700,
+          boxShadow: `0 0 20px ${T.violetGlow}`,
+        }}>A</div>
+      </div>
+
+      {/* Progress card */}
+      <div style={{
+        margin: '8px 16px', padding: 18, position: 'relative', overflow: 'hidden',
+        background: `linear-gradient(145deg, ${T.surface}, ${T.surface2})`,
+        borderRadius: T.rad.xl, border: `1px solid ${T.border}`,
+      }}>
+        <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{
+            width: 60, height: 60, borderRadius: '50%', flexShrink: 0, position: 'relative',
+            background: `conic-gradient(${T.teal} ${pct}%, ${T.surface3} ${pct}%)`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <div style={{
+              width: 50, height: 50, borderRadius: '50%', background: T.surface,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column',
+            }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: T.teal }}>{pct}%</span>
+              <span style={{ fontSize: 8, color: T.text3, marginTop: -1 }}>done</span>
+            </div>
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: T.text2 }}>{completedToday} of {totalToday} habits done</div>
+            <div style={{ fontSize: 11, color: T.text3, marginTop: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ color: T.amber, fontWeight: 600 }}>{'\u2605'}</span> Best streak: {streak} days
+            </div>
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 26, fontWeight: 400, fontFamily: T.serif, color: T.amber, fontStyle: 'italic', lineHeight: 1 }}>{streak}</div>
+            <div style={{ fontSize: 9, color: T.text3, marginTop: 2 }}>day streak</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Week strip */}
+      <div style={{ padding: '6px 16px 10px', display: 'flex', justifyContent: 'space-between' }}>
+        {weekDays.map((d, i) => (
+          <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
+            <span style={{ fontSize: 10, fontWeight: d.active ? 700 : 500, color: d.active ? T.violet : T.text3, letterSpacing: 0.3 }}>{d.label}</span>
+            <div style={{
+              width: 30, height: 30, borderRadius: '50%',
+              background: d.active ? (d.completed ? `linear-gradient(135deg, ${T.teal}, ${T.tealDeep})` : T.surface3) : 'transparent',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: d.active && d.completed ? `0 0 12px ${T.tealGlow}` : 'none',
+            }}>
+              <span style={{ fontSize: 11, fontWeight: d.active ? 700 : 400, color: d.active ? (d.completed ? '#000' : T.text) : T.text3 }}>{i + 15}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Section */}
+      <div style={{ padding: '6px 16px 4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: T.text2 }}>Today's Habits</span>
+        <span style={{ fontSize: 10, color: T.violet, cursor: 'pointer', fontWeight: 600, letterSpacing: 0.3 }}>See all</span>
+      </div>
+
+      <div style={{ flex: 1, padding: '0 16px 8px', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {SAMPLE_HABITS.map(h => (
+          <HabitRow key={h.id} habit={h} onClick={() => onNavigate && onNavigate('detail', h.id)} />
+        ))}
+        <div onClick={() => onNavigate && onNavigate('new')} style={{
+          padding: '12px 14px', borderRadius: T.rad.lg, cursor: 'pointer',
+          border: `1.5px dashed ${T.border2}`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          color: T.text3, fontSize: 12, fontWeight: 500, transition: `all 0.2s ${T.ease}`,
+        }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = T.violet + '66'; e.currentTarget.style.color = T.violet; e.currentTarget.style.background = T.violetGlow; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = T.border2; e.currentTarget.style.color = T.text3; e.currentTarget.style.background = 'transparent'; }}>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+          New Habit
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ======================== Screen: Calendar ======================== */
+function CalendarScreen() {
+  const [monthOffset, setMonthOffset] = useState(0);
+  const d = new Date(TODAY.getFullYear(), TODAY.getMonth() + monthOffset, 1);
+  const year = d.getFullYear(), month = d.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const startOffset = d.getDay() === 0 ? 6 : d.getDay() - 1;
+
+  const calDays = [];
+  for (let i = 0; i < startOffset; i++) calDays.push(null);
+  for (let i = 1; i <= daysInMonth; i++) calDays.push(i);
+
+  return (
+    <div style={{ height: '100%', background: `radial-gradient(ellipse 100% 30% at 50% -10%, ${T.violetGlow}, transparent)`, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '16px 20px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: 20, fontWeight: 600, fontFamily: T.serif, color: T.text }}>{MONTHS[month]} {year}</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {['<','>'].map((dir, i) => (
+            <div key={i} onClick={() => setMonthOffset(m => i === 0 ? m - 1 : m + 1)} style={{
+              width: 32, height: 32, borderRadius: '50%', background: T.surface2, border: `1px solid ${T.border}`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 13, color: T.text2, fontWeight: 600,
+              transition: `all 0.15s ${T.ease}`,
+            }}
+              onMouseEnter={e => { e.currentTarget.style.background = T.surface3; e.currentTarget.style.color = T.text; }}
+              onMouseLeave={e => { e.currentTarget.style.background = T.surface2; e.currentTarget.style.color = T.text2; }}>
+              {dir}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ padding: '4px 16px', display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, textAlign: 'center' }}>
+        {WEEKDAYS.map(d => <div key={d} style={{ fontSize: 10, fontWeight: 600, color: T.text3, padding: '4px 0', letterSpacing: 0.3 }}>{d}</div>)}
+      </div>
+      <div style={{ padding: '0 16px', display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, textAlign: 'center' }}>
+        {calDays.map((day, i) => {
+          if (day === null) return <div key={`e${i}`} />;
+          const isToday = day === TODAY.getDate() && monthOffset === 0;
+          const hasActivity = SAMPLE_HABITS.some(h => h.logs[(day % 14)]);
+          return (
+            <div key={day} style={{ padding: '4px 0' }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: '50%', margin: '0 auto',
+                background: isToday ? `linear-gradient(135deg, ${T.violet}, ${T.violetDeep})` : 'transparent',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative',
+                boxShadow: isToday ? `0 0 16px ${T.violetGlow}` : 'none',
+              }}>
+                <span style={{ fontSize: 12, fontWeight: isToday ? 700 : 400, color: isToday ? '#000' : T.text }}>{day}</span>
+                {hasActivity && !isToday && <div style={{ width: 3, height: 3, borderRadius: '50%', background: T.teal, position: 'absolute', bottom: 3 }} />}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ margin: '8px 16px', display: 'flex', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 5, height: 5, borderRadius: '50%', background: T.teal }} /><span style={{ fontSize: 9, color: T.text3 }}>Activity</span></div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 5, height: 5, borderRadius: '50%', background: T.violet }} /><span style={{ fontSize: 9, color: T.text3 }}>Today</span></div>
+      </div>
+
+      <div style={{ margin: '4px 16px', padding: 16, background: `linear-gradient(145deg, ${T.surface}, ${T.surface2})`, borderRadius: T.rad.xl, border: `1px solid ${T.border}` }}>
+        <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 10, letterSpacing: 0.3 }}>MONTHLY SUMMARY</div>
+        <div style={{ display: 'flex', justifyContent: 'space-around' }}>
+          {[{label:'Streak',val:'12d',col:T.amber},{label:'Rate',val:'78%',col:T.teal},{label:'Best',val:'21d',col:T.violet}].map(s => (
+            <div key={s.label} style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 22, fontWeight: 600, fontFamily: T.serif, color: s.col, lineHeight: 1.1 }}>{s.val}</div>
+              <div style={{ fontSize: 9, color: T.text3, marginTop: 3 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ padding: '6px 16px 4px', fontSize: 11, fontWeight: 600, color: T.text2, letterSpacing: 0.3 }}>RECENT</div>
+      <div style={{ flex: 1, padding: '0 16px 8px', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {SAMPLE_HABITS.slice(0, 4).map(h => (
+          <HabitRow key={h.id} habit={h} dense />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ======================== Screen: Assistant ======================== */
+function AssistantScreen() {
+  const [msgs, setMsgs] = useState([
+    { role: 'assistant', text: "Hi Alex! You meditated 10 min yesterday. Ready for today?" },
+    { role: 'user', text: "Yes, just finished. Felt great." },
+    { role: 'assistant', text: "Love that. You're on a 12-day streak. Want to try 12 minutes tomorrow for symmetry?" },
+  ]);
+  const [input, setInput] = useState('');
+  const endRef = useRef(null);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs]);
+  const send = () => {
+    if (!input.trim()) return;
+    setMsgs([...msgs, { role: 'user', text: input }]);
+    setInput('');
+    setTimeout(() => setMsgs(prev => [...prev, { role: 'assistant', text: "Noted! I'll check in later to see how it went." }]), 700);
+  };
+
+  return (
+    <div style={{ height: '100%', background: `radial-gradient(ellipse 100% 30% at 50% -10%, ${T.violetGlow}, transparent)`, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '16px 20px 8px', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{
+          width: 34, height: 34, borderRadius: T.rad.md,
+          background: `linear-gradient(135deg, ${T.violet}, ${T.violetDeep})`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, color: '#000',
+          boxShadow: `0 0 16px ${T.violetGlow}`,
+        }}>{'\u2728'}</div>
+        <div><div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>Assistant</div><div style={{ fontSize: 10, color: T.text3, fontWeight: 500 }}>AI-powered habit coach</div></div>
+      </div>
+      <div style={{ flex: 1, padding: '8px 16px', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {msgs.map((m, i) => (
+          <div key={i} style={{ display: 'flex', justifyContent: m.role === 'assistant' ? 'flex-start' : 'flex-end', gap: 8 }}>
+            {m.role === 'assistant' && <div style={{ width: 24, height: 24, borderRadius: T.rad.sm, background: T.violetGlow, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, flexShrink: 0, marginTop: 4 }}>{'\u2728'}</div>}
+            <div style={{
+              maxWidth: '80%', padding: '10px 14px',
+              borderRadius: m.role === 'assistant' ? T.rad.lg : T.rad.lg,
+              background: m.role === 'assistant' ? `linear-gradient(145deg, ${T.surface2}, ${T.surface})` : `linear-gradient(135deg, ${T.violet}, ${T.violetDeep})`,
+              border: m.role === 'assistant' ? `1px solid ${T.border}` : 'none',
+              borderBottomLeftRadius: m.role === 'assistant' ? 4 : T.rad.lg,
+              borderBottomRightRadius: m.role === 'assistant' ? T.rad.lg : 4,
+              boxShadow: m.role === 'assistant' ? 'none' : `0 4px 16px ${T.violetGlow}`,
+            }}>
+              <div style={{ fontSize: 12, lineHeight: 1.55, color: m.role === 'assistant' ? T.text : '#000', fontWeight: m.role === 'user' ? 500 : 400 }}>{m.text}</div>
+            </div>
+          </div>
+        ))}
+        <div ref={endRef} />
+      </div>
+      <div style={{ padding: '8px 16px 12px', borderTop: `1px solid ${T.border}` }}>
+        <div style={{
+          display: 'flex', gap: 8, alignItems: 'center',
+          background: T.surface2, borderRadius: T.rad.full,
+          padding: '3px 3px 3px 16px',
+          border: `1px solid ${T.border}`,
+          transition: `border-color 0.2s ${T.ease}`,
+          boxShadow: `0 2px 8px rgba(0,0,0,0.2)`,
+        }}>
+          <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="Ask me anything..." style={{
+            flex: 1, border: 'none', outline: 'none', background: 'transparent',
+            fontSize: 12, color: T.text, fontFamily: T.sans,
+          }} />
+          <div onClick={send} style={{
+            width: 34, height: 34, borderRadius: '50%',
+            background: `linear-gradient(135deg, ${T.violet}, ${T.violetDeep})`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+            boxShadow: `0 2px 8px ${T.violetGlow}`,
+            transition: `transform 0.15s ${T.ease}`,
+          }}
+            onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.05)'}
+            onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2.5 7h9M8 3.5l3.5 3.5L8 10.5" stroke="#000" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ======================== Screen: Habit Detail ======================== */
+function HabitDetailScreen({ habitId }) {
+  const habit = SAMPLE_HABITS.find(h => h.id === habitId) || SAMPLE_HABITS[0];
+  const weekly = habit.logs.slice(-7);
+  const completion = Math.round(weekly.filter(Boolean).length / 7 * 100);
+  const bars = weekly.map((v, i) => ({
+    day: ['M','T','W','T','F','S','S'][i],
+    h: v ? 28 + Math.sin(i * 0.8) * 18 + 10 : 6,
+    fill: v,
+  }));
+
+  return (
+    <div style={{ height: '100%', background: `radial-gradient(ellipse 120% 40% at 50% -20%, ${habit.color}11, transparent)`, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '16px 20px 8px', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{
+          width: 42, height: 42, borderRadius: T.rad.md,
+          background: `${habit.color}22`, border: `1px solid ${habit.color}44`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, color: habit.color,
+        }}>{HABIT_ICONS[habit.icon]}</div>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: T.text, letterSpacing: '-0.03em' }}>{habit.name}</div>
+          <div style={{ fontSize: 10, color: T.text3, marginTop: 1 }}>
+            {habit.kind === 'duration' ? `${habit.targetValue} ${habit.unit}/day` : habit.kind === 'count' ? `${habit.targetValue} ${habit.unit}/day` : 'Yes/No'}
+            {' \u00B7 '}<span style={{ color: habit.color }}>{habit.category}</span>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ margin: '8px 16px', display: 'flex', gap: 8 }}>
+        <StatBadge label="Streak" value={`${habit.streak}d`} hue={T.amber} />
+        <StatBadge label="This Week" value={`${weekly.filter(Boolean).length}/7`} hue={T.teal} />
+        <StatBadge label="Rate" value={`${completion}%`} hue={T.violet} />
+      </div>
+
+      <div style={{ margin: '4px 16px', padding: 16, background: `linear-gradient(145deg, ${T.surface}, ${T.surface2})`, borderRadius: T.rad.xl, border: `1px solid ${T.border}` }}>
+        <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, marginBottom: 12, letterSpacing: 0.3 }}>THIS WEEK</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', height: 60, gap: 6 }}>
+          {bars.map((b, i) => (
+            <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+              <div style={{
+                width: '100%', height: b.h, borderRadius: T.rad.sm,
+                background: b.fill ? `linear-gradient(180deg, ${habit.color}, ${habit.color}88)` : T.surface3,
+                opacity: b.fill ? 0.85 : 0.3,
+                transition: `height 0.4s ${T.ease}`,
+              }} />
+              <span style={{ fontSize: 8, color: T.text3, fontWeight: 500 }}>{b.day}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ padding: '6px 16px 4px', fontSize: 11, fontWeight: 600, color: T.text2, letterSpacing: 0.3 }}>ACTIVITY LOG</div>
+      <div style={{ flex: 1, padding: '0 16px 8px', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {[...Array(5)].map((_, i) => {
+          const date = new Date(TODAY); date.setDate(date.getDate() - i);
+          const done = habit.logs[habit.logs.length - 1 - i] !== 0;
+          return (
+            <div key={i} style={{
+              padding: '10px 12px', background: T.surface, borderRadius: T.rad.md,
+              border: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              transition: `all 0.15s ${T.ease}`,
+            }}
+              onMouseEnter={e => { e.currentTarget.style.background = T.surface2; e.currentTarget.style.borderColor = T.border2; }}
+              onMouseLeave={e => { e.currentTarget.style.background = T.surface; e.currentTarget.style.borderColor = T.border; }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <CheckCircle done={done} size={18} />
+                <span style={{ fontSize: 12, color: T.text, fontWeight: 500 }}>{date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+              </div>
+              <span style={{ fontSize: 10, fontWeight: 600, color: done ? T.teal : T.text3 }}>{done ? 'Completed' : 'Missed'}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ======================== Screen: New Habit ======================== */
+function NewHabitScreen() {
+  const [name, setName] = useState('');
+  const [kind, setKind] = useState('yesNo');
+  const [color, setColor] = useState(HABIT_COLORS[0]);
+  const kinds = [
+    { id: 'yesNo', label: 'Yes / No', hint: 'Complete once' },
+    { id: 'count', label: 'Count', hint: 'Track repeats' },
+    { id: 'duration', label: 'Duration', hint: 'Track time' },
+    { id: 'negative', label: 'Avoid', hint: 'Break a pattern' },
+  ];
+
+  return (
+    <div style={{ height: '100%', background: `radial-gradient(ellipse 100% 30% at 50% -10%, ${T.violetGlow}, transparent)`, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '16px 20px 8px' }}>
+        <div style={{ fontSize: 20, fontWeight: 700, color: T.text, letterSpacing: '-0.03em' }}>New Habit</div>
+        <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Define something you want to track</div>
+      </div>
+
+      <div style={{ padding: '0 16px', flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div>
+          <label style={{ fontSize: 10, color: T.text3, fontWeight: 600, marginBottom: 5, display: 'block', letterSpacing: 0.5 }}>HABIT NAME</label>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g., Morning Meditation" style={{
+            width: '100%', padding: '12px 14px', background: T.surface2, borderRadius: T.rad.md,
+            border: `1px solid ${T.border}`, outline: 'none', fontSize: 14, color: T.text, fontFamily: T.sans,
+            transition: `border-color 0.2s ${T.ease}`,
+          }}
+            onFocus={e => e.target.style.borderColor = T.violet + '66'}
+            onBlur={e => e.target.style.borderColor = T.border} />
+        </div>
+
+        <div>
+          <label style={{ fontSize: 10, color: T.text3, fontWeight: 600, marginBottom: 5, display: 'block', letterSpacing: 0.5 }}>TYPE</label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
+            {kinds.map(k => (
+              <div key={k.id} onClick={() => setKind(k.id)} style={{
+                padding: '10px 0', textAlign: 'center', borderRadius: T.rad.md, cursor: 'pointer',
+                background: kind === k.id ? `linear-gradient(135deg, ${T.violet}, ${T.violetDeep})` : T.surface2,
+                border: `1px solid ${kind === k.id ? T.violet : T.border}`,
+                fontSize: 11, fontWeight: 600, color: kind === k.id ? '#000' : T.text2,
+                transition: `all 0.15s ${T.ease}`,
+              }}>
+                {k.label}
+                <div style={{ fontSize: 8, fontWeight: 400, color: kind === k.id ? 'rgba(0,0,0,0.6)' : T.text3, marginTop: 2 }}>{k.hint}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label style={{ fontSize: 10, color: T.text3, fontWeight: 600, marginBottom: 5, display: 'block', letterSpacing: 0.5 }}>COLOR</label>
+          <div style={{ display: 'flex', gap: 7 }}>
+            {HABIT_COLORS.map(c => (
+              <div key={c} onClick={() => setColor(c)} style={{
+                width: 30, height: 30, borderRadius: '50%', background: c, cursor: 'pointer',
+                border: color === c ? '2px solid #fff' : '2px solid transparent',
+                boxShadow: color === c ? `0 0 12px ${c}66` : 'none',
+                transition: `all 0.15s ${T.ease}`,
+              }}
+                onMouseEnter={e => { if (color !== c) e.currentTarget.style.transform = 'scale(1.15)'; }}
+                onMouseLeave={e => { if (color !== c) e.currentTarget.style.transform = 'scale(1)'; }} />
+            ))}
+          </div>
+        </div>
+
+        {(kind === 'count' || kind === 'duration') && (
+          <div>
+            <label style={{ fontSize: 10, color: T.text3, fontWeight: 600, marginBottom: 5, display: 'block', letterSpacing: 0.5 }}>TARGET {kind === 'duration' ? '(MINUTES)' : '(COUNT)'}</label>
+            <input defaultValue={kind === 'duration' ? '10' : '8'} style={{ width: '100%', padding: '12px 14px', background: T.surface2, borderRadius: T.rad.md, border: `1px solid ${T.border}`, outline: 'none', fontSize: 14, color: T.text, fontFamily: T.sans }} />
+          </div>
+        )}
+
+        <div>
+          <label style={{ fontSize: 10, color: T.text3, fontWeight: 600, marginBottom: 5, display: 'block', letterSpacing: 0.5 }}>CATEGORY</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+            {['Health', 'Focus', 'Fitness', 'Learning', 'Sleep', 'Mindfulness'].map(c => (
+              <div key={c} style={{ padding: '5px 10px', borderRadius: T.rad.full, background: T.surface3, border: `1px solid ${T.border}`, fontSize: 10, color: T.text3, fontWeight: 500 }}>{c}</div>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label style={{ fontSize: 10, color: T.text3, fontWeight: 600, marginBottom: 5, display: 'block', letterSpacing: 0.5 }}>SCHEDULE</label>
+          <div style={{ padding: '12px 14px', background: T.surface2, borderRadius: T.rad.md, border: `1px solid ${T.border}`, fontSize: 13, color: T.text2 }}>Every day</div>
+        </div>
+
+        <div style={{ padding: '4px 0 16px' }}>
+          <div style={{
+            width: '100%', padding: '14px 0',
+            background: `linear-gradient(135deg, ${T.violet}, ${T.violetDeep})`,
+            borderRadius: T.rad.full, textAlign: 'center', cursor: 'pointer',
+            fontSize: 13, fontWeight: 700, color: '#000',
+            boxShadow: `0 4px 20px ${T.violetGlow}`,
+            transition: `all 0.2s ${T.ease}`,
+          }}
+            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = `0 6px 28px ${T.violetGlow}`; }}
+            onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = `0 4px 20px ${T.violetGlow}`; }}>
+            Create Habit
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ======================== Screen: Edit Habit ======================== */
+function EditHabitScreen({ habitId }) {
+  const habit = SAMPLE_HABITS.find(h => h.id === (habitId || 'h1')) || SAMPLE_HABITS[0];
+  const [name, setName] = useState(habit.name);
+  const [kind, setKind] = useState(habit.kind);
+  const [color, setColor] = useState(habit.color);
+  const [category, setCategory] = useState(habit.category);
+  const categories = ['Health', 'Focus', 'Fitness', 'Learning', 'Sleep', 'Mindfulness'];
+
+  return (
+    <div style={{ height: '100%', background: `radial-gradient(ellipse 100% 30% at 50% -10%, ${T.violetGlow}, transparent)`, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '14px 18px 4px', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{
+          width: 38, height: 38, borderRadius: T.rad.md, cursor: 'pointer',
+          background: T.surface2, border: `1px solid ${T.border}`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, color: T.text2,
+          transition: `all 0.15s ${T.ease}`,
+        }}
+          onMouseEnter={e => { e.currentTarget.style.background = T.surface3; e.currentTarget.style.color = T.text; }}
+          onMouseLeave={e => { e.currentTarget.style.background = T.surface2; e.currentTarget.style.color = T.text2; }}>
+          {'<'}
+        </div>
+        <span style={{ fontSize: 11, color: T.text3, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>Edit habit</span>
+      </div>
+
+      <div style={{ margin: '6px 16px', padding: 16, borderRadius: T.rad.xl, position: 'relative', overflow: 'hidden',
+        background: `linear-gradient(145deg, ${T.surface}, ${T.surface2})`, border: `1px solid ${T.border}` }}>
+        <div style={{ fontSize: 11, color: T.violet, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Edit habit</div>
+        <div style={{ fontSize: 24, fontWeight: 800, color: T.text, lineHeight: 1.15, letterSpacing: '-0.03em' }}>Build something easy to show up for.</div>
+        <div style={{ fontSize: 11, color: T.text3, marginTop: 6, maxWidth: 250, lineHeight: 1.5 }}>Pick the core details first. The rest stays lightweight so it feels fast.</div>
+      </div>
+
+      <div style={{ flex: 1, padding: '0 16px 8px', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ padding: 14, background: `linear-gradient(145deg, ${T.surface}, ${T.surface2})`, borderRadius: T.rad.xl, border: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 46, height: 46, borderRadius: T.rad.md, background: color + '22', border: `1px solid ${color}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color }}>{HABIT_ICONS[habit.icon]}</div>
+          <div>
+            <div style={{ fontSize: 10, color: T.violet, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>Habit preview</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{name || 'Your new habit'}</div>
+            <div style={{ fontSize: 10, color: T.text3 }}>{category || 'Choose a category'}</div>
+          </div>
+        </div>
+
+        {[
+          { label: 'NAME', el: <input value={name} onChange={e => setName(e.target.value)} style={{ width: '100%', padding: '12px 14px', background: T.surface2, borderRadius: T.rad.md, border: `1px solid ${T.border}`, outline: 'none', fontSize: 14, color: T.text, fontFamily: T.sans }} /> },
+          { label: 'CATEGORY', el: <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>{categories.map(c => <div key={c} onClick={() => setCategory(c)} style={{ padding: '5px 10px', borderRadius: T.rad.full, cursor: 'pointer', background: category === c ? T.violet + '22' : T.surface3, border: `1px solid ${category === c ? T.violet : T.border}`, fontSize: 10, fontWeight: 500, color: category === c ? T.violet : T.text3 }}>{c}</div>)}</div> },
+        ].map(s => (
+          <div key={s.label}><label style={{ fontSize: 10, color: T.text3, fontWeight: 600, marginBottom: 5, display: 'block', letterSpacing: 0.5 }}>{s.label}</label>{s.el}</div>
+        ))}
+
+        <div style={{ marginTop: 'auto', padding: '16px 0', borderTop: `1px solid ${T.border}` }}>
+          <div style={{
+            width: '100%', padding: '14px 0', borderRadius: T.rad.md, textAlign: 'center', cursor: 'pointer',
+            background: `linear-gradient(135deg, ${T.violetDeep}, #6d28d9)`,
+            fontSize: 13, fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            boxShadow: `0 4px 20px ${T.violetGlow}`,
+            transition: `all 0.2s ${T.ease}`,
+          }}
+            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = `0 6px 28px rgba(167,139,250,0.2)`; }}
+            onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = `0 4px 20px ${T.violetGlow}`; }}>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 7.5l2.5 2.5L11 4" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            Save habit
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ======================== Screen: Settings ======================== */
+const SETTINGS_TOGGLES = [
+  { key: 'notifs', label: 'Notifications' },
+  { key: 'ai', label: 'AI Suggestions' },
+  { key: 'voice', label: 'Voice Input' },
+  { key: 'widget', label: 'Home Widget' },
+  { key: 'analytics', label: 'Weekly Report' },
+];
+
+function SettingsScreen() {
+  const [toggleState, setToggleState] = useState(Object.fromEntries(SETTINGS_TOGGLES.map(t => [t.key, ['notifs','ai','voice','analytics'].includes(t.key)])));
+  const toggle = (key) => setToggleState(s => ({ ...s, [key]: !s[key] }));
+
+  return (
+    <div style={{ height: '100%', background: `radial-gradient(ellipse 100% 30% at 50% -10%, ${T.violetGlow}, transparent)`, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '16px 20px 8px' }}>
+        <div style={{ fontSize: 20, fontWeight: 700, color: T.text, letterSpacing: '-0.03em' }}>Settings</div>
+      </div>
+      <div style={{ flex: 1, padding: '0 16px 8px', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{
+          padding: 16, borderRadius: T.rad.xl, border: `1px solid ${T.border}`,
+          background: `linear-gradient(145deg, ${T.surface}, ${T.surface2})`,
+          display: 'flex', alignItems: 'center', gap: 14,
+        }}>
+          <div style={{
+            width: 46, height: 46, borderRadius: '50%',
+            background: `linear-gradient(135deg, ${T.violet}, ${T.violetDeep})`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 700, color: '#000',
+            boxShadow: `0 0 20px ${T.violetGlow}`,
+          }}>A</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Alex</div>
+            <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>Free Plan</div>
+          </div>
+          <div style={{ fontSize: 11, color: T.violet, fontWeight: 600, cursor: 'pointer', padding: '6px 12px', borderRadius: T.rad.full, background: T.violetGlow, transition: `all 0.15s ${T.ease}` }}
+            onMouseEnter={e => e.currentTarget.style.background = T.violet + '22'}
+            onMouseLeave={e => e.currentTarget.style.background = T.violetGlow}>
+            Edit
+          </div>
+        </div>
+
+        <div style={{ fontSize: 10, color: T.text3, fontWeight: 600, paddingLeft: 4, letterSpacing: 0.5 }}>PREFERENCES</div>
+        {SETTINGS_TOGGLES.map(t => {
+          const on = toggleState[t.key];
+          return (
+            <div key={t.key} style={{
+              padding: '12px 14px', borderRadius: T.rad.lg, border: `1px solid ${T.border}`,
+              background: T.surface, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              transition: `all 0.15s ${T.ease}`,
+            }}
+              onMouseEnter={e => { e.currentTarget.style.background = T.surface2; e.currentTarget.style.borderColor = T.border2; }}
+              onMouseLeave={e => { e.currentTarget.style.background = T.surface; e.currentTarget.style.borderColor = T.border; }}>
+              <span style={{ fontSize: 13, color: T.text, fontWeight: 500 }}>{t.label}</span>
+              <div onClick={() => toggle(t.key)} style={{
+                width: 40, height: 22, borderRadius: 99, cursor: 'pointer', position: 'relative',
+                background: on ? `linear-gradient(135deg, ${T.violet}, ${T.violetDeep})` : T.surface3,
+                transition: `background 0.2s ${T.ease}`,
+              }}>
+                <div style={{
+                  width: 18, height: 18, borderRadius: '50%', background: '#fff',
+                  position: 'absolute', top: 2, left: on ? 20 : 2,
+                  transition: `left 0.2s ${T.ease}, transform 0.15s ${T.ease}`,
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                }} />
+              </div>
+            </div>
+          );
+        })}
+
+        <div style={{ marginTop: 'auto', padding: '14px 16px', borderRadius: T.rad.xl, border: `1px solid ${T.border}`,
+          background: `linear-gradient(145deg, ${T.surface2}, ${T.surface})`, position: 'relative', overflow: 'hidden' }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>HabitAI Premium</div>
+          <div style={{ fontSize: 10, color: T.text3, marginTop: 4, lineHeight: 1.5, maxWidth: 240 }}>
+            Unlimited habits, advanced analytics, voice coaching.
+          </div>
+          <div style={{
+            marginTop: 10, padding: '10px 0', borderRadius: T.rad.full, textAlign: 'center', cursor: 'pointer',
+            background: `linear-gradient(135deg, ${T.violet}, ${T.violetDeep})`,
+            fontSize: 12, fontWeight: 700, color: '#000',
+            boxShadow: `0 4px 16px ${T.violetGlow}`,
+            transition: `all 0.2s ${T.ease}`,
+          }}
+            onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
+            onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>
+            Upgrade — $4.99/mo
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ======================== Screen: Onboarding ======================== */
+function OnboardingScreen({ slide = 0 }) {
+  const slides = [
+    { title: 'Build Better Habits', subtitle: 'Track what matters. One small step at a time.', icon: '\u2618', color: T.violet },
+    { title: 'Smart AI Guidance', subtitle: 'Your personal coach that learns your patterns.', icon: '\u2728', color: T.teal },
+    { title: 'Grow Every Day', subtitle: 'Streaks, insights, quiet accountability.', icon: '\u2606', color: T.amber },
+  ];
+  const s = slides[slide];
+
+  return (
+    <div style={{ height: '100%', background: `radial-gradient(ellipse 100% 40% at 50% 40%, ${s.color}11, ${T.bg})`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+      <div style={{ fontSize: 52, marginBottom: 20, filter: 'drop-shadow(0 4px 16px rgba(0,0,0,0.3))' }}>{s.icon}</div>
+      <div style={{ fontSize: 24, fontFamily: T.serif, color: T.text, textAlign: 'center', lineHeight: 1.2 }}>{s.title}</div>
+      <div style={{ fontSize: 12, color: T.text3, textAlign: 'center', marginTop: 10, lineHeight: 1.6, maxWidth: 240 }}>{s.subtitle}</div>
+      <div style={{ display: 'flex', gap: 6, marginTop: 28 }}>
+        {slides.map((_, i) => <div key={i} style={{ width: slide === i ? 24 : 6, height: 6, borderRadius: 99, background: slide === i ? s.color : T.surface3, transition: `all 0.4s ${T.ease}` }} />)}
+      </div>
+      <div style={{ marginTop: 'auto', width: '100%' }}>
+        <div style={{
+          padding: '14px 0', borderRadius: T.rad.full, textAlign: 'center', cursor: 'pointer',
+          background: `linear-gradient(135deg, ${s.color}, ${s.color}cc)`,
+          fontSize: 14, fontWeight: 700, color: '#000',
+          boxShadow: `0 4px 20px ${s.color}22`,
+          transition: `all 0.2s ${T.ease}`,
+        }}
+          onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
+          onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>
+          {slide === 2 ? 'Get Started' : 'Next'}
+        </div>
+        <div style={{ marginTop: 8, fontSize: 11, color: T.text3, textAlign: 'center', cursor: 'pointer', padding: 4 }}>Skip</div>
+      </div>
+    </div>
+  );
+}
+
+/* ======================== Screen: Auth ======================== */
+function AuthScreen() {
+  return (
+    <div style={{ height: '100%', background: `radial-gradient(ellipse 100% 40% at 50% 30%, ${T.violet}11, ${T.bg})`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+      <div style={{
+        width: 60, height: 60, borderRadius: T.rad.xl, marginBottom: 20,
+        background: `linear-gradient(135deg, ${T.violet}, ${T.violetDeep})`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, color: '#000',
+        boxShadow: `0 0 30px ${T.violetGlow}`,
+      }}>{'\u2618'}</div>
+      <div style={{ fontSize: 30, fontFamily: T.serif, color: T.text, textAlign: 'center', fontStyle: 'italic', letterSpacing: '-0.02em' }}>HabitAI</div>
+      <div style={{ fontSize: 12, color: T.text3, textAlign: 'center', marginTop: 8, maxWidth: 220, lineHeight: 1.6 }}>Calm accountability for better habits.</div>
+
+      <div style={{ marginTop: 40, width: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{
+          padding: '14px 0', borderRadius: T.rad.full, textAlign: 'center', cursor: 'pointer',
+          background: '#fff', fontSize: 12, fontWeight: 600, color: '#000',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
+          transition: `all 0.15s ${T.ease}`,
+        }}
+          onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
+          onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>
+          <svg width="16" height="16" viewBox="0 0 16 16"><path fill="#4285F4" d="M14.9 8.16c0-.52-.04-1.03-.13-1.52H8.16v2.88h3.8a3.44 3.44 0 01-1.49 2.26v1.88h2.4c1.42-1.3 2.24-3.22 2.24-5.5z"/><path fill="#34A853" d="M8.16 15c2.02 0 3.72-.67 4.96-1.82l-2.4-1.88c-.67.45-1.53.72-2.56.72-1.97 0-3.63-1.33-4.23-3.11H1.4v1.94A7.52 7.52 0 008.16 15z"/><path fill="#FBBC05" d="M3.93 8.91A4.5 4.5 0 013.7 8c0-.32.08-.63.23-.91V5.15H1.4A7.48 7.48 0 00.66 8c0 1.22.3 2.37.74 3.37l2.53-2.46z"/><path fill="#EA4335" d="M8.16 3.5c1.1 0 2.09.38 2.87 1.13l2.16-2.15A7.5 7.5 0 008.16.5 7.52 7.52 0 001.4 4.65l2.53 2.46c.6-1.78 2.26-3.11 4.23-3.11z"/></svg>
+          Continue with Google
+        </div>
+        <div style={{
+          padding: '14px 0', borderRadius: T.rad.full, textAlign: 'center', cursor: 'pointer',
+          background: T.surface2, fontSize: 12, fontWeight: 600, color: T.text,
+          border: `1px solid ${T.border}`,
+          transition: `all 0.15s ${T.ease}`,
+        }}
+          onMouseEnter={e => e.currentTarget.style.background = T.surface3}
+          onMouseLeave={e => e.currentTarget.style.background = T.surface2}>
+          Continue with Email
+        </div>
+        <div style={{ padding: '10px 0', textAlign: 'center', fontSize: 12, color: T.text3, cursor: 'pointer' }}>Continue as Guest</div>
+      </div>
+      <div style={{ marginTop: 'auto', fontSize: 10, color: T.text3, textAlign: 'center', lineHeight: 1.6 }}>By continuing, you agree to our Terms and Privacy Policy.</div>
+    </div>
+  );
+}
+
+/* ======================== Screen: Archive ======================== */
+function ArchiveScreen() {
+  const archived = SAMPLE_HABITS.slice(0, 2).map(h => ({ ...h, archivedAt: '2025-12-01' }));
+  return (
+    <div style={{ height: '100%', background: `radial-gradient(ellipse 100% 30% at 50% -10%, ${T.violetGlow}, transparent)`, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '16px 20px 8px' }}>
+        <div style={{ fontSize: 20, fontWeight: 700, color: T.text, letterSpacing: '-0.03em' }}>Archive</div>
+        <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Completed and archived habits</div>
+      </div>
+      <div style={{ flex: 1, padding: '0 16px 8px', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {archived.length === 0 ? (
+          <div style={{ padding: 32, textAlign: 'center', color: T.text3, fontSize: 12 }}>No archived habits yet.</div>
+        ) : archived.map(h => (
+          <div key={h.id} style={{ padding: '12px 14px', borderRadius: T.rad.lg, background: T.surface, border: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 10, opacity: 0.7 }}>
+            <div style={{ width: 28, height: 28, borderRadius: T.rad.sm, background: h.color + '22', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: h.color }}>{HABIT_ICONS[h.icon]}</div>
+            <div style={{ flex: 1 }}><div style={{ fontSize: 13, color: T.text }}>{h.name}</div><div style={{ fontSize: 10, color: T.text3 }}>Archived {h.archivedAt}</div></div>
+            <div style={{ fontSize: 11, color: T.violet, cursor: 'pointer', fontWeight: 600 }}>Restore</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ======================== Screen: Today Progress ======================== */
+function TodayProgressScreen() {
+  return (
+    <div style={{ height: '100%', background: `radial-gradient(ellipse 100% 30% at 50% -10%, ${T.violetGlow}, transparent)`, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '16px 20px 8px' }}>
+        <div style={{ fontSize: 20, fontWeight: 700, color: T.text, letterSpacing: '-0.03em' }}>Today's Progress</div>
+      </div>
+      <div style={{ flex: 1, padding: '0 16px', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {SAMPLE_HABITS.map(h => {
+          const done = h.logs[h.logs.length-1];
+          const fillPct = done ? 100 : 15 + Math.random() * 30;
+          return (
+            <div key={h.id}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{h.name}</span>
+                <span style={{ fontSize: 10, fontWeight: 600, color: done ? T.teal : T.text3 }}>{done ? 'Done' : 'Pending'}</span>
+              </div>
+              <div style={{ height: 5, borderRadius: 99, background: T.surface3, overflow: 'hidden', position: 'relative' }}>
+                <div style={{
+                  height: '100%', width: `${fillPct}%`, borderRadius: 99,
+                  background: done ? `linear-gradient(90deg, ${T.teal}, ${T.tealDeep})` : `linear-gradient(90deg, ${T.violet}66, ${T.violet}33)`,
+                  transition: `width 0.6s ${T.ease}`,
+                }} />
+              </div>
+              <div style={{ fontSize: 10, color: T.text3, marginTop: 3 }}>{done ? `${h.targetValue || 1} ${h.unit || 'done'}` : 'Not yet'}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ======================== Main App ======================== */
+function App() {
+  const [detailHabit, setDetailHabit] = useState('h1');
+  const [activeTab, setActiveTab] = useState('today');
+
+  const screens = [
+    { id: 'today', label: 'Today', desc: 'Dashboard & daily habits', time: '10:28',
+      render: () => <TodayScreen onNavigate={(page, id) => { if (page === 'detail') { setDetailHabit(id || 'h1'); setActiveTab('detail'); } if (page === 'new') setActiveTab('newhabit'); }} /> },
+    { id: 'calendar', label: 'Calendar', desc: 'Monthly view & streaks', time: '9:41',
+      render: () => <CalendarScreen /> },
+    { id: 'assistant', label: 'Assistant', desc: 'AI habit coach chat', time: '9:41',
+      render: () => <AssistantScreen /> },
+    { id: 'detail', label: 'Habit Detail', desc: 'Stats & weekly chart', time: '9:41',
+      render: () => <HabitDetailScreen habitId={detailHabit} /> },
+    { id: 'newhabit', label: 'New Habit', desc: 'Create a new habit', time: '9:41',
+      render: () => <NewHabitScreen /> },
+    { id: 'edit', label: 'Edit Habit', desc: 'Modify an existing habit', time: '9:41',
+      render: () => <EditHabitScreen habitId={detailHabit} /> },
+    { id: 'settings', label: 'Settings', desc: 'Preferences & account', time: '11:03',
+      render: () => <SettingsScreen /> },
+  ];
+
+  const secondaryScreens = [
+    { id: 'onboarding', label: 'Onboarding', desc: 'Welcome carousel', render: () => <OnboardingScreen slide={0} /> },
+    { id: 'auth', label: 'Auth', desc: 'Sign in / Sign up', render: () => <AuthScreen /> },
+    { id: 'archive', label: 'Archive', desc: 'Completed habits', render: () => <ArchiveScreen /> },
+    { id: 'progress', label: 'Progress', desc: 'Detailed progress', render: () => <TodayProgressScreen /> },
+  ];
+
+  return (
+    <div>
+      <div className="app-header">
+        <div className="kicker"><span>{'\u2618'}</span> iOS App Prototype</div>
+        <h1>HabitAI</h1>
+        <p>The calmest habit tracker — voice-first, local-first, zero noise. All screens interactive.</p>
+      </div>
+
+      <div className="section-divider">Core Screens</div>
+      <div className="phone-grid">
+        {screens.map(s => (
+          <div key={s.id} className="phone-item">
+            <IosFrame width={375} height={812} time={s.time}>
+              {s.render()}
+            </IosFrame>
+            <div className="phone-label"><strong>{s.label}</strong> — {s.desc}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="section-divider" style={{ marginTop: 48 }}>Additional Screens</div>
+      <div className="phone-grid">
+        {secondaryScreens.map(s => (
+          <div key={s.id} className="phone-item">
+            <IosFrame width={375} height={812} time="9:41">
+              {s.render()}
+            </IosFrame>
+            <div className="phone-label"><strong>{s.label}</strong> — {s.desc}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ textAlign: 'center', padding: '48px 24px', color: T.text3, fontSize: 11, borderTop: `1px solid ${T.border}`, marginTop: 48 }}>
+        HabitAI &middot; Designed with huashu-design &middot; {TODAY.getFullYear()}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { Href, router } from 'expo-router';
 import { Alert, Image, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -22,6 +22,8 @@ const THEME_OPTIONS: { label: string; value: ThemePreference; icon: IconName }[]
   { label: 'Dark', value: 'dark', icon: 'moon' },
   { label: 'AMOLED', value: 'amoled', icon: 'color-filter-outline' },
 ];
+
+const PREMIUM_ROUTE = '/premium' as Href;
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -51,10 +53,11 @@ export default function SettingsScreen() {
   const selectedAvatar = PROFILE_AVATARS.find((avatar) => avatar.id === preferences.profileAvatarId) ?? PROFILE_AVATARS[0];
   const notificationsOn = preferences.notificationPermission === 'granted';
   const bottomPadding = Math.max(insets.bottom, 16) + 132;
+  const dailyReminderTime = normalizeReminderTime(preferences.dailyReminderTime);
 
   async function toggleNotifications(value: boolean) {
     if (!value) {
-      await saveDailyReminderPreference(preferences.dailyReminderTime, false);
+      await saveDailyReminderPreference(dailyReminderTime, false);
       setNotificationPermission('denied');
       return;
     }
@@ -62,7 +65,7 @@ export default function SettingsScreen() {
     const nextValue = await requestNotificationAccess();
     setNotificationPermission(nextValue);
     if (nextValue === 'granted' && preferences.dailyReminderEnabled) {
-      await saveDailyReminderPreference(preferences.dailyReminderTime, true);
+      await saveDailyReminderPreference(dailyReminderTime, true);
     }
   }
 
@@ -285,7 +288,7 @@ export default function SettingsScreen() {
             <InsetRow
               icon="time-outline"
               label="Daily reminder"
-              value={canScheduleNotifications() ? toMeridiemTime(preferences.dailyReminderTime) : 'Unavailable'}
+              value={canScheduleNotifications() ? toMeridiemTime(dailyReminderTime) : 'Unavailable'}
               onPress={async () => {
                 if (preferences.notificationPermission !== 'granted') {
                   const nextValue = await requestNotificationAccess();
@@ -428,6 +431,31 @@ export default function SettingsScreen() {
             />
           </GlassCard>
 
+          <GlassCard>
+            <View style={styles.topRow}>
+              <CardHeading icon="star-outline" iconColor="#FFD700" title="Premium" subtitle="Upgrade for more features" />
+              <Pressable onPress={() => router.push(PREMIUM_ROUTE)}>
+                <Ionicons name="chevron-forward" size={18} color="#9fafcf" />
+              </Pressable>
+            </View>
+            <View style={[styles.premiumCard, { backgroundColor: settingsPalette.premiumGradient[1] }]}>
+              <View style={styles.premiumLeft}>
+                <Ionicons name="star" size={24} color="#FFD700" />
+                <View style={styles.premiumCopy}>
+                  <Text style={[styles.activePillText, { color: '#FFD700' }]}>{premium.entitlement}</Text>
+                  <Text style={[styles.listLabel, { fontSize: 15, fontWeight: '600' }]}>Current plan: {premium.provider}</Text>
+                </View>
+              </View>
+              <Pressable
+                style={[styles.activePill, { backgroundColor: 'rgba(255, 215, 0, 0.15)' }]}
+                onPress={() => router.push(PREMIUM_ROUTE)}
+              >
+                <Text style={styles.activePillText}>Upgrade</Text>
+                <Ionicons name="chevron-forward" size={14} color="#FFD700" />
+              </Pressable>
+            </View>
+          </GlassCard>
+
           <View style={styles.utilityRail}>
             <UtilityAction label={session.mode === 'guest' ? 'Sign in' : 'Switch account'} onPress={() => router.push('/auth')} />
             <UtilityAction
@@ -442,7 +470,7 @@ export default function SettingsScreen() {
         </ScrollView>
         {dailyReminderOpen ? (
           <ReminderTimePopup
-            initialTime={preferences.dailyReminderTime}
+            initialTime={dailyReminderTime}
             inputSurface={settingsPalette.input}
             onCancel={() => setDailyReminderOpen(false)}
             onConfirm={async (time) => {
@@ -609,6 +637,25 @@ function toMeridiemTime(value: string) {
   const meridiem = hour24 >= 12 ? 'PM' : 'AM';
   const hour12 = hour24 % 12 || 12;
   return `${hour12}:${minute.padStart(2, '0')} ${meridiem}`;
+}
+
+function normalizeReminderTime(value?: string | null) {
+  if (typeof value !== 'string') {
+    return '20:00';
+  }
+
+  const match = /^(\d{1,2}):(\d{1,2})$/.exec(value.trim());
+  if (!match) {
+    return '20:00';
+  }
+
+  const hour = Number.parseInt(match[1], 10);
+  const minute = Number.parseInt(match[2], 10);
+  if (Number.isNaN(hour) || Number.isNaN(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return '20:00';
+  }
+
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
 
 const styles = StyleSheet.create({
@@ -1131,17 +1178,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 12,
   },
-  accountFeedbackText: {
-    flex: 1,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  utilityRail: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    justifyContent: 'center',
-  },
+    accountFeedbackText: {
+      flex: 1,
+      fontSize: 13,
+      lineHeight: 18,
+    },
+    premiumLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      flex: 1,
+    },
+    premiumCopy: {
+      gap: 2,
+    },
+    utilityRail: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      justifyContent: 'center',
+    },
   utilityButton: {
     minHeight: 34,
     borderRadius: 17,

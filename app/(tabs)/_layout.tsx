@@ -62,9 +62,10 @@ function FloatingTabBar({ state, descriptors, navigation }: any) {
 
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-      <NewHabitSheet visible={newHabitOpen} onClose={() => setNewHabitOpen(false)} />
-      <View style={[styles.wrapper, { paddingBottom: bottomOffset }]}>
+      {newHabitOpen ? <NewHabitSheet visible onClose={() => setNewHabitOpen(false)} /> : null}
+      <View pointerEvents="box-none" style={[styles.wrapper, { paddingBottom: bottomOffset }]}>
         <View
+          pointerEvents="auto"
           style={[
             styles.rail,
             {
@@ -149,6 +150,7 @@ function FloatingTabBar({ state, descriptors, navigation }: any) {
         <Pressable
           accessibilityLabel="Add habit"
           accessibilityRole="button"
+          pointerEvents="auto"
           style={[
             styles.addButton,
             {

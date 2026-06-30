@@ -163,7 +163,7 @@ function HabitProgressCardInner({
   const heatmapScrollRef = useRef<ScrollView | null>(null);
   return (
     <Pressable style={[styles.habitCard, { backgroundColor: tokens.surface, borderColor: tokens.border }]} onPress={onOpen}>
-      <View style={styles.habitHeaderRow}>
+      <View style={[styles.habitHeaderRow, menuOpen && styles.habitHeaderRowMenuOpen]}>
         <View style={styles.habitIdentity}>
           <View style={[styles.habitIconWrap, { backgroundColor: `${habit.color}22` }]}>
             <Ionicons name={habit.icon as React.ComponentProps<typeof Ionicons>['name']} size={28} color={habit.color} />
@@ -194,7 +194,7 @@ function HabitProgressCardInner({
             <Ionicons name="checkmark" size={24} color={completedToday ? '#ffffff' : tokens.success} />
           </Pressable>
 
-          <View style={styles.progressMenuWrap}>
+          <View style={[styles.progressMenuWrap, menuOpen && styles.progressMenuWrapOpen]}>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Open actions for ${habit.name}`}
@@ -396,6 +396,7 @@ const styles = StyleSheet.create({
   cardList: { gap: 16 },
   habitCard: { borderRadius: 28, borderWidth: 1, padding: 16, gap: 12 },
   habitHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  habitHeaderRowMenuOpen: { zIndex: 30 },
   habitIdentity: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
   habitIconWrap: { width: 58, height: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center' },
   habitTitleCopy: { flex: 1, gap: 4 },
@@ -411,17 +412,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   progressMenuWrap: { position: 'relative' },
+  progressMenuWrapOpen: { zIndex: 40 },
   progressMenuButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   progressPopup: {
     position: 'absolute',
-    top: 0,
-    right: 28,
-    width: 108,
+    top: 40,
+    right: 0,
+    width: 132,
     borderRadius: 14,
     borderWidth: 1,
     paddingVertical: 6,
-    zIndex: 40,
-    elevation: 12,
+    zIndex: 50,
+    elevation: 16,
   },
   popupAction: { minHeight: 34, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 8 },
   popupLabel: { fontSize: 13, fontWeight: '700' },

@@ -23,9 +23,23 @@ import {
   AiCommandPreview,
   resolveAssistantConversationTurn,
 } from '@/src/lib/ai-assistant';
+import {
+  AssistantWaveIcon,
+  BookIcon,
+  BookOrbIcon,
+  CalendarMiniIcon,
+  ChangeListIcon,
+  DocumentIcon,
+  RunningShoeIcon,
+  ShieldSparkIcon,
+  SparkleIcon,
+  StackBooksIcon,
+  StreakDropIcon,
+} from '@/src/components/assistant-icons';
 import { cleanupTranscriptWithWhisper, getWhisperModelName, hasWhisperCleanupConfigured } from '@/src/lib/whisper';
+import { calculateStreak } from '@/src/domain/habits';
 import { useAppStore } from '@/src/store/app-store';
-import { AssistantSessionMessage } from '@/src/types/habits';
+import { AssistantSessionMessage, Habit, HabitLog, HabitSchedule } from '@/src/types/habits';
 import { useThemeTokens } from '@/src/theme/colors';
 
 type InteractionMode = 'voice' | 'chat';
@@ -45,7 +59,7 @@ type PendingAssistantAction = {
 };
 
 // One constant drives the whole orb so it scales as a single unit.
-const ORB_SIZE = 188;
+const ORB_SIZE = 168;
 
 export default function AssistantScreen() {
   const tokens = useThemeTokens();
@@ -233,6 +247,7 @@ export default function AssistantScreen() {
 
   const voiceMessages = useMemo(() => messages.slice(-4), [messages]);
   const transcriptWords = useMemo(() => getTranscriptWords(transcript), [transcript]);
+  const suggestedHabits = useMemo(() => habits.filter((habit) => !habit.archivedAt).slice(0, 3), [habits]);
   const activeWordIndex = Math.min(liveWordIndex, Math.max(transcriptWords.length - 1, 0));
   const isThinking = processing || cleaningTranscript;
 
@@ -304,14 +319,6 @@ export default function AssistantScreen() {
                 }}
               />
             </View>
-            <Pressable
-              accessibilityLabel="Start new assistant session"
-              accessibilityRole="button"
-              onPress={resetConversation}
-              style={[styles.newChatButton, { backgroundColor: palette.chip, borderColor: tokens.border }]}
-            >
-              <Ionicons name="add" size={22} color={tokens.textMuted} />
-            </Pressable>
           </View>
 
           {interactionMode === 'voice' ? (
@@ -332,53 +339,73 @@ export default function AssistantScreen() {
                 tokens={tokens}
               />
 
-              <View style={styles.stateRow}>
-                <StateBadge label="Listening" active={recognizing} tone="listening" tokens={tokens} palette={palette} />
+              {recognizing || isThinking ? (
                 <StateBadge
-                  label="Thinking"
-                  active={isThinking && !recognizing}
-                  tone="thinking"
+                  label={recognizing ? 'Listening...' : 'Thinking...'}
+                  active
+                  tone={recognizing ? 'listening' : 'thinking'}
                   tokens={tokens}
                   palette={palette}
                 />
-              </View>
+              ) : null}
 
-              {/* Single live caption strip — not a framed card, not a duplicate. */}
               <View style={styles.captionStrip}>
-                {transcriptWords.length ? (
-                  <View style={styles.transcriptWrap} accessibilityLiveRegion="polite">
-                    {transcriptWords.map((word, index) => {
-                      const isActiveWord = index === activeWordIndex;
-                      return (
-                        <Text
-                          key={`${word}-${index}`}
-                          style={[
-                            styles.word,
-                            { color: isActiveWord ? tokens.primary : tokens.text },
-                            isActiveWord && { fontWeight: '700' },
-                          ]}
-                        >
-                          {word}
-                        </Text>
-                      );
-                    })}
+                {pendingAction?.preview.status === 'needs-clarification' ? (
+                  <View style={styles.emptyVoiceState}>
+                    <View style={styles.kickerRow}>
+                      <SparkleIcon size={15} color={tokens.primary} />
+                      <Text style={[styles.helperKicker, { color: tokens.primary }]}>Just to be sure</Text>
+                    </View>
+                    <Text style={[styles.emptyVoiceTitle, styles.emptyVoiceTitleLeft, { color: tokens.text }]}>
+                      Which habit did you mean?
+                    </Text>
+                  </View>
+                ) : transcriptWords.length ? (
+                  <View style={styles.transcriptStack} accessibilityLiveRegion="polite">
+                    <Text style={[styles.transcriptBadge, { color: palette.label }]}>
+                      {recognizing ? 'Listening...' : isThinking ? 'Thinking...' : 'Heard'}
+                    </Text>
+                    <View style={styles.transcriptWrap}>
+                      {transcriptWords.map((word, index) => {
+                        const isActiveWord = index === activeWordIndex;
+                        return (
+                          <Text
+                            key={`${word}-${index}`}
+                            style={[
+                              styles.word,
+                              { color: isActiveWord ? palette.label : tokens.text },
+                              isActiveWord && { fontWeight: '700' },
+                            ]}
+                          >
+                            {word}
+                          </Text>
+                        );
+                      })}
+                    </View>
                   </View>
                 ) : (
                   <View style={styles.emptyVoiceState}>
-                    <Text style={[styles.emptyVoiceTitle, { color: tokens.text }]}>
-                      {recognizing ? 'Listening…' : 'Tap the mic to talk'}
-                    </Text>
-                    <Text style={[styles.emptyVoiceBody, { color: tokens.textMuted }]}>
-                      {recognizing
-                        ? 'Your words appear here as you speak.'
-                        : 'Speak naturally — I can coach you and prepare habit changes for you to confirm.'}
-                    </Text>
+                    <View style={styles.kickerRow}>
+                      <SparkleIcon size={15} color={tokens.primary} />
+                      <Text style={[styles.helperKicker, { color: tokens.primary }]}>Ready when you are</Text>
+                    </View>
                   </View>
                 )}
               </View>
 
               {speechError ? (
                 <Text style={[styles.errorText, { color: tokens.danger }]}>{speechError}</Text>
+              ) : null}
+
+              {!transcriptWords.length && !pendingAction ? (
+                <View style={styles.suggestedBlock}>
+                  <Text style={[styles.sectionEyebrow, { color: tokens.textMuted }]}>Suggested habits</Text>
+                  <View style={styles.suggestedRow}>
+                    {suggestedHabits.map((habit) => (
+                      <SuggestedHabitCard key={habit.id} habit={habit} tokens={tokens} />
+                    ))}
+                  </View>
+                </View>
               ) : null}
 
               {pendingAction ? (
@@ -388,12 +415,14 @@ export default function AssistantScreen() {
                   onCancel={cancelPendingAction}
                   onSelectHabit={(habitId) => void resolveDisambiguation(habitId)}
                   busy={processing}
+                  habits={habits}
+                  logs={logs}
                   tokens={tokens}
                   palette={palette}
                 />
               ) : null}
 
-              {voiceMessages.length ? (
+              {voiceMessages.length && transcriptWords.length ? (
                 <View style={styles.voiceHistoryBlock}>
                   <Text style={[styles.sectionEyebrow, { color: tokens.textMuted }]}>Recent</Text>
                   {voiceMessages.map((message) => (
@@ -410,8 +439,8 @@ export default function AssistantScreen() {
                 contentContainerStyle={{
                   paddingTop: Math.max(insets.top, 20) + 86,
                   paddingBottom: Math.max(insets.bottom, 18) + 140,
-                  paddingHorizontal: 18,
-                  gap: 14,
+                  paddingHorizontal: 20,
+                  gap: 16,
                 }}
                 showsVerticalScrollIndicator={false}
               >
@@ -421,10 +450,10 @@ export default function AssistantScreen() {
                   ))
                 ) : (
                   <View style={styles.chatEmptyState}>
-                    <Text style={[styles.chatEmptyTitle, { color: tokens.text }]}>Chat with your habit assistant</Text>
+                    <Text style={[styles.chatEmptyEyebrow, { color: tokens.primary }]}>Chat</Text>
+                    <Text style={[styles.chatEmptyTitle, { color: tokens.text }]}>Ask anything about your habits.</Text>
                     <Text style={[styles.chatEmptyBody, { color: tokens.textMuted }]}>
-                      Ask for coaching, talk through a goal, or tell me to create, update, or complete a habit. I'll
-                      confirm before changing anything.
+                      Coaching, planning, streak questions, or safe habit changes all work here.
                     </Text>
                   </View>
                 )}
@@ -436,6 +465,8 @@ export default function AssistantScreen() {
                     onCancel={cancelPendingAction}
                     onSelectHabit={(habitId) => void resolveDisambiguation(habitId)}
                     busy={processing}
+                    habits={habits}
+                    logs={logs}
                     tokens={tokens}
                     palette={palette}
                   />
@@ -444,13 +475,22 @@ export default function AssistantScreen() {
                 {processing ? <TypingDots tokens={tokens} palette={palette} /> : null}
               </ScrollView>
 
-              <View style={[styles.chatComposer, { paddingBottom: Math.max(insets.bottom, 18) + 10, backgroundColor: palette.composer }]}>
+              <View
+                style={[
+                  styles.chatComposer,
+                  {
+                    paddingBottom: Math.max(insets.bottom, 18) + 10,
+                    backgroundColor: palette.composer,
+                    borderTopColor: tokens.border,
+                  },
+                ]}
+              >
                 <TextInput
                   value={chatDraft}
                   onChangeText={setChatDraft}
                   placeholder="Ask anything about your habits…"
                   placeholderTextColor={tokens.textMuted}
-                  style={[styles.chatInput, { backgroundColor: tokens.surfaceMuted, color: tokens.text, borderColor: tokens.border }]}
+                  style={[styles.chatInput, { backgroundColor: palette.input, color: tokens.text, borderColor: tokens.border }]}
                   multiline
                 />
                 <Pressable
@@ -460,11 +500,11 @@ export default function AssistantScreen() {
                   disabled={!chatDraft.trim() || processing}
                   style={[
                     styles.chatSendButton,
-                    { backgroundColor: tokens.primary },
+                    { backgroundColor: palette.micButton, borderColor: 'rgba(190,168,255,0.35)' },
                     (!chatDraft.trim() || processing) && styles.chatSendDisabled,
                   ]}
                 >
-                  <Ionicons name="arrow-up" size={20} color={palette.onPrimary} />
+                  <Ionicons name="arrow-up" size={20} color={palette.micIcon} />
                 </Pressable>
               </View>
             </View>
@@ -475,12 +515,12 @@ export default function AssistantScreen() {
               accessibilityLabel={recognizing ? 'Stop listening' : 'Start listening'}
               accessibilityRole="button"
               onPress={recognizing ? stopListening : () => void startListening()}
-              style={[styles.micButton, { bottom: Math.max(insets.bottom, 18) + 28, backgroundColor: tokens.primary }]}
+              style={[styles.micButton, { bottom: Math.max(insets.bottom, 18) + 28, backgroundColor: palette.micButton }]}
             >
               {recognizing || processing ? (
-                <Ionicons name="stop" size={24} color={palette.onPrimary} />
+                <Ionicons name="stop" size={24} color={palette.micIcon} />
               ) : (
-                <Ionicons name="mic" size={28} color={palette.onPrimary} />
+                <Ionicons name="mic" size={28} color={palette.micIcon} />
               )}
             </Pressable>
           ) : null}
@@ -840,6 +880,8 @@ function ConfirmationCard({
   onCancel,
   onSelectHabit,
   busy,
+  habits,
+  logs,
   tokens,
   palette,
 }: {
@@ -848,45 +890,82 @@ function ConfirmationCard({
   onCancel: () => void;
   onSelectHabit: (habitId: string) => void;
   busy: boolean;
+  habits: Habit[];
+  logs: HabitLog[];
   tokens: ReturnType<typeof useThemeTokens>;
   palette: AssistantPalette;
 }) {
   const destructive = preview.intent === 'delete';
-  const accent = destructive ? tokens.danger : tokens.primary;
+  const needsClarification = preview.status === 'needs-clarification';
+  const accent = destructive ? tokens.danger : needsClarification ? '#9f7aea' : palette.label;
 
   return (
     <View
       style={[
         styles.confirmCard,
         {
-          backgroundColor: tokens.surface,
-          borderColor: destructive ? tokens.danger : tokens.border,
+          backgroundColor: palette.card,
+          borderColor: needsClarification ? palette.clarifyBorder : destructive ? tokens.danger : tokens.border,
           shadowColor: palette.shadow,
         },
       ]}
     >
       <View style={styles.confirmHeader}>
-        <Text style={[styles.confirmEyebrow, { color: accent }]}>
-          {preview.status === 'needs-clarification' ? 'Need one more detail' : 'Review before changing anything'}
-        </Text>
+        <View style={styles.confirmEyebrowRow}>
+          {needsClarification ? <SparkleIcon size={14} color={accent} /> : <ShieldSparkIcon size={16} color={accent} />}
+          <Text style={[styles.confirmEyebrow, { color: accent }]}>
+            {needsClarification ? 'Just to be sure' : 'Before I do that'}
+          </Text>
+        </View>
         <Text style={[styles.confirmTitle, { color: tokens.text }]}>
-          {preview.intent === 'delete' ? 'Delete habit' : humanizeIntent(preview.intent)}
+          {needsClarification ? getClarificationTitle(preview) : preview.intent === 'delete' ? 'Delete habit' : humanizeIntent(preview.intent)}
         </Text>
       </View>
 
-      <Text style={[styles.confirmBody, { color: tokens.text }]}>{preview.preview}</Text>
+      {!needsClarification && preview.execution ? (
+        <View style={[styles.confirmVisualCard, { borderColor: accent }]}>
+          <BookOrbIcon size={54} color="#46DBC8" secondaryColor="#13252D" />
+          <Text style={[styles.confirmHeroTitle, { color: tokens.text }]}>{preview.preview.replace('Review before I add it.', '').replace('Review before I change anything.', '')}</Text>
+          <View style={styles.confirmMetricList}>
+            <View style={styles.confirmMetricRow}>
+              <CalendarMiniIcon size={15} color={tokens.textMuted} />
+              <Text style={[styles.confirmMetricText, { color: tokens.textMuted }]}>{preview.targetDate ? friendlyResultDate(preview.targetDate) : 'today'}</Text>
+            </View>
+            <View style={styles.confirmMetricRow}>
+              <ChangeListIcon size={15} color={tokens.textMuted} secondaryColor="#46DBC8" />
+              <Text style={[styles.confirmMetricText, { color: tokens.textMuted }]}>{humanizeIntent(preview.intent)}</Text>
+            </View>
+            <View style={styles.confirmMetricRow}>
+              <StreakDropIcon size={15} color={tokens.textMuted} />
+              <Text style={[styles.confirmMetricText, { color: tokens.textMuted }]}>Safe preview</Text>
+            </View>
+          </View>
+        </View>
+      ) : null}
+
+      {!needsClarification ? <Text style={[styles.confirmBody, { color: tokens.text }]}>{preview.preview}</Text> : null}
 
       {preview.disambiguationOptions?.length ? (
         <View style={styles.optionWrap}>
           {preview.disambiguationOptions.map((option) => (
-            <Pressable
+            <ClarificationOptionCard
               key={option.id}
+              habit={habits.find((habit) => habit.id === option.id)}
+              streak={getClarificationStreak(option.id, habits, logs)}
+              selected={preview.matchedHabitId === option.id}
+              tokens={tokens}
+              palette={palette}
               onPress={() => onSelectHabit(option.id)}
-              style={[styles.optionChip, { backgroundColor: tokens.primarySoft, borderColor: accent }]}
-            >
-              <Text style={[styles.optionChipText, { color: tokens.text }]}>{option.name}</Text>
-            </Pressable>
+            />
           ))}
+        </View>
+      ) : null}
+
+      {needsClarification ? (
+        <View style={[styles.clarificationFooter, { backgroundColor: palette.footerPanel, borderColor: tokens.border }]}>
+          <Text style={[styles.clarificationFooterText, { color: tokens.textMuted }]}>
+            I want to get this right. You can always change it later.
+          </Text>
         </View>
       ) : null}
 
@@ -913,6 +992,98 @@ function ConfirmationCard({
   );
 }
 
+function SuggestedHabitCard({
+  habit,
+  tokens,
+}: {
+  habit: Habit;
+  tokens: ReturnType<typeof useThemeTokens>;
+}) {
+  return (
+    <View style={[styles.suggestedCard, { backgroundColor: 'rgba(255,255,255,0.04)', borderColor: tokens.border }]}>
+      <HabitGlyph habit={habit} size={22} color={tokens.text} accent="#9A86E8" />
+      <Text style={[styles.suggestedTitle, { color: tokens.text }]} numberOfLines={2}>
+        {habit.name}
+      </Text>
+      <Text style={[styles.suggestedMeta, { color: tokens.textMuted }]} numberOfLines={1}>
+        {getHabitTimeLabel(habit)}
+      </Text>
+    </View>
+  );
+}
+
+function ClarificationOptionCard({
+  habit,
+  streak,
+  selected,
+  tokens,
+  palette,
+  onPress,
+}: {
+  habit?: Habit;
+  streak: number;
+  selected: boolean;
+  tokens: ReturnType<typeof useThemeTokens>;
+  palette: AssistantPalette;
+  onPress: () => void;
+}) {
+  if (!habit) {
+    return null;
+  }
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[
+        styles.clarifyOptionCard,
+        {
+          backgroundColor: palette.optionCard,
+          borderColor: selected ? palette.clarifyBorder : 'rgba(255,255,255,0.07)',
+        },
+      ]}
+    >
+      <View style={styles.clarifyLeft}>
+        <View style={[styles.clarifyIconWrap, { backgroundColor: selected ? 'rgba(159,122,234,0.16)' : 'rgba(255,255,255,0.05)' }]}>
+          <HabitGlyph habit={habit} size={20} color={tokens.text} accent="#9A86E8" />
+        </View>
+        <View style={styles.clarifyCopy}>
+          <Text style={[styles.clarifyTitle, { color: tokens.text }]}>{habit.name}</Text>
+          <Text style={[styles.clarifyMeta, { color: tokens.textMuted }]}>{getHabitScheduleSummary(habit.schedule, habit)}</Text>
+        </View>
+      </View>
+      <View style={styles.clarifyRight}>
+        <Text style={[styles.clarifyStreakValue, { color: tokens.text }]}>{streak}</Text>
+        <Text style={[styles.clarifyStreakLabel, { color: tokens.textMuted }]}>day streak</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function HabitGlyph({
+  habit,
+  size,
+  color,
+  accent,
+}: {
+  habit: Habit;
+  size: number;
+  color: string;
+  accent: string;
+}) {
+  const value = (habit.icon || habit.name).toLowerCase();
+
+  if (value.includes('shoe') || value.includes('run')) {
+    return <RunningShoeIcon size={size} color={color} secondaryColor={accent} />;
+  }
+  if (value.includes('chapter') || value.includes('stack')) {
+    return <StackBooksIcon size={size} color={color} secondaryColor={accent} />;
+  }
+  if (value.includes('non') || value.includes('note') || value.includes('doc')) {
+    return <DocumentIcon size={size} color={color} secondaryColor={accent} />;
+  }
+  return <BookIcon size={size} color={color} secondaryColor={accent} />;
+}
+
 function ThreadMessage({
   message,
   tokens,
@@ -928,24 +1099,24 @@ function ThreadMessage({
   return (
     <View style={[styles.threadRow, isUser ? styles.threadRowUser : styles.threadRowAssistant]}>
       {!isUser ? (
-        <View style={[styles.messageDot, { backgroundColor: isPreview ? tokens.warning : tokens.primary }]} />
+        <View style={[styles.messageDot, { backgroundColor: isPreview ? tokens.warning : palette.label }]} />
       ) : null}
       <View
         style={[
           styles.threadBubble,
           isUser
-            ? { backgroundColor: tokens.primary }
+            ? { backgroundColor: palette.userBubble, borderColor: palette.userBubbleBorder }
             : isPreview
-              ? { backgroundColor: tokens.surface, borderColor: tokens.warning }
-              : { backgroundColor: tokens.surface, borderColor: tokens.border },
+              ? { backgroundColor: palette.previewBubble, borderColor: tokens.warning }
+              : { backgroundColor: palette.assistantBubble, borderColor: tokens.border },
         ]}
       >
         {!isUser ? (
-          <Text style={[styles.threadLabel, { color: isPreview ? tokens.warning : tokens.primary }]}>
+          <Text style={[styles.threadLabel, { color: isPreview ? tokens.warning : palette.label }]}>
             {isPreview ? 'Action preview' : 'Assistant'}
           </Text>
         ) : null}
-        <Text style={[styles.threadText, { color: isUser ? palette.onPrimary : tokens.text }]}>{message.text}</Text>
+        <Text style={[styles.threadText, { color: isUser ? palette.userBubbleText : tokens.text }]}>{message.text}</Text>
       </View>
     </View>
   );
@@ -991,15 +1162,16 @@ function ModeButton({
   tokens: ReturnType<typeof useThemeTokens>;
   palette: AssistantPalette;
 }) {
+  const label = icon === 'mic' ? 'Voice' : 'Chat';
   return (
     <Pressable
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
       onPress={onPress}
-      style={[styles.modeButton, active && { backgroundColor: tokens.primary }]}
+      style={[styles.modeButton, active && { backgroundColor: palette.modeActive }]}
     >
-      <Ionicons name={icon} size={18} color={active ? palette.onPrimary : tokens.textMuted} />
+      <Text style={[styles.modeButtonText, { color: active ? palette.modeActiveText : tokens.textMuted }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -1070,43 +1242,48 @@ function GradientOrb({
 
   return (
     <View style={styles.orbField} accessibilityLabel={`Assistant orb — ${stateLabel}`} accessibilityRole="image">
-      {/* Soft glow ring — fades/scales in only while active. */}
       <Animated.View
         pointerEvents="none"
         style={[
           styles.orbGlow,
           {
-            width: size + 56,
-            height: size + 56,
-            borderRadius: (size + 56) / 2,
-            backgroundColor: tokens.primary,
-            opacity: Animated.multiply(glowOpacity, 0.28),
+            width: size + 38,
+            height: size + 38,
+            borderRadius: (size + 38) / 2,
+            backgroundColor: state === 'listening' ? palette.label : '#9f7aea',
+            opacity: state === 'idle' ? 0.18 : Animated.multiply(glowOpacity, 0.28),
             transform: [{ scale: glowScale }],
           },
         ]}
       />
-      {/* Gradient core. */}
       <Animated.View style={{ width: size, height: size, transform: [{ scale }] }}>
-        <LinearGradient
-          colors={palette.orbGradient}
-          start={{ x: 0.2, y: 0 }}
-          end={{ x: 0.8, y: 1 }}
+        <View
           style={{
             width: size,
             height: size,
             borderRadius: size / 2,
             alignItems: 'center',
             justifyContent: 'center',
-            borderWidth: 1,
-            borderColor: palette.orbBorder,
+            backgroundColor: 'rgba(13, 18, 30, 0.8)',
+            borderWidth: 1.5,
+            borderColor: state === 'listening' ? palette.label : palette.orbBorder,
+            shadowColor: state === 'listening' ? palette.label : '#9f7aea',
+            shadowOpacity: 0.42,
+            shadowRadius: 18,
+            shadowOffset: { width: 0, height: 0 },
           }}
         >
-          <Ionicons
-            name={state === 'listening' ? 'mic' : state === 'thinking' ? 'sparkles' : 'mic-outline'}
-            size={size * 0.26}
-            color={palette.onPrimary}
+          <View
+            style={{
+              position: 'absolute',
+              inset: 10,
+              borderRadius: (size - 20) / 2,
+              borderWidth: 1,
+              borderColor: state === 'listening' ? 'rgba(70,219,200,0.28)' : 'rgba(159,122,234,0.22)',
+            }}
           />
-        </LinearGradient>
+          <AssistantWaveIcon size={size * 0.19} color={state === 'listening' ? palette.label : '#b69cff'} />
+        </View>
       </Animated.View>
     </View>
   );
@@ -1204,27 +1381,58 @@ type AssistantPalette = {
   label: string;
   chip: string;
   composer: string;
+  input: string;
   shadow: string;
   orbBorder: string;
   orbGradient: [string, string, string];
+  card: string;
+  clarifyBorder: string;
+  optionCard: string;
+  footerPanel: string;
+  modeActive: string;
+  modeActiveText: string;
+  micButton: string;
+  micIcon: string;
+  orbListeningGradient: [string, string, string];
+  orbThinkingGradient: [string, string, string];
+  assistantBubble: string;
+  previewBubble: string;
+  userBubble: string;
+  userBubbleBorder: string;
+  userBubbleText: string;
 };
 
 function buildAssistantPalette(tokens: ReturnType<typeof useThemeTokens>): AssistantPalette {
-  // onPrimary text color: dark on the bright accent in light mode, near-black elsewhere.
   const onPrimary = tokens.mode === 'light' ? '#ffffff' : '#04111f';
   return {
     onPrimary,
-    label: tokens.mode === 'light' ? '#0f766e' : tokens.teal,
+    label: tokens.mode === 'light' ? '#0f766e' : '#46dbc8',
     chip: tokens.mode === 'light' ? 'rgba(15,23,42,0.04)' : 'rgba(255,255,255,0.04)',
     composer: tokens.mode === 'light' ? 'rgba(244,247,251,0.94)' : 'rgba(7,17,31,0.96)',
+    input: tokens.mode === 'light' ? 'rgba(255,255,255,0.98)' : 'rgba(255,255,255,0.045)',
     shadow: tokens.mode === 'light' ? '#0f1f3a' : '#000000',
-    orbBorder: tokens.mode === 'light' ? 'rgba(37,99,235,0.45)' : 'rgba(96,165,250,0.55)',
+    orbBorder: tokens.mode === 'light' ? 'rgba(124,58,237,0.5)' : 'rgba(178,140,255,0.66)',
     orbGradient:
       tokens.mode === 'light'
-        ? ['#2563eb', '#3b82f6', '#60a5fa']
+        ? ['#4338ca', '#7c3aed', '#a78bfa']
         : tokens.mode === 'amoled'
-          ? ['#0f172a', '#1e293b', '#334155']
-          : ['#1e3a8a', '#1d4ed8', '#2563eb'],
+          ? ['#090611', '#140c28', '#2f1a57']
+          : ['#0c0818', '#1b1035', '#4b2a8c'],
+    card: tokens.mode === 'light' ? '#ffffff' : 'rgba(14, 17, 29, 0.96)',
+    clarifyBorder: '#9f7aea',
+    optionCard: tokens.mode === 'light' ? '#ffffff' : 'rgba(17, 21, 34, 0.98)',
+    footerPanel: tokens.mode === 'light' ? 'rgba(244,247,251,0.96)' : 'rgba(255,255,255,0.03)',
+    modeActive: tokens.mode === 'light' ? '#efe7ff' : 'rgba(110, 91, 177, 0.34)',
+    modeActiveText: tokens.mode === 'light' ? '#5b21b6' : '#f2ecff',
+    micButton: tokens.mode === 'light' ? '#7c3aed' : 'rgba(38, 21, 74, 0.92)',
+    micIcon: '#d9c8ff',
+    orbListeningGradient: tokens.mode === 'light' ? ['#0d9488', '#14b8a6', '#5eead4'] : ['#041916', '#0a4d4a', '#46dbc8'],
+    orbThinkingGradient: tokens.mode === 'light' ? ['#0f766e', '#14b8a6', '#67e8f9'] : ['#07161f', '#0c3d47', '#44c7d9'],
+    assistantBubble: tokens.mode === 'light' ? '#ffffff' : 'rgba(255,255,255,0.045)',
+    previewBubble: tokens.mode === 'light' ? '#fffbf2' : 'rgba(63, 46, 16, 0.38)',
+    userBubble: tokens.mode === 'light' ? '#efe7ff' : 'rgba(57, 35, 101, 0.72)',
+    userBubbleBorder: tokens.mode === 'light' ? 'rgba(124,58,237,0.18)' : 'rgba(190,168,255,0.16)',
+    userBubbleText: tokens.mode === 'light' ? '#2e1065' : '#f4eeff',
   };
 }
 
@@ -1256,6 +1464,61 @@ function humanizeIntent(intent: AiCommandPreview['intent']) {
   }
 }
 
+function getClarificationTitle(preview: AiCommandPreview) {
+  if (preview.disambiguationOptions?.length) {
+    const firstOption = preview.disambiguationOptions[0];
+    const firstWord = firstOption?.name?.split(' ')[0]?.toLowerCase();
+    if (firstWord) {
+      return `Which ${firstWord} habit did you mean?`;
+    }
+  }
+  return 'Which habit did you mean?';
+}
+
+function getClarificationStreak(habitId: string, habits: Habit[], logs: HabitLog[]) {
+  const habit = habits.find((item) => item.id === habitId);
+  if (!habit) {
+    return 0;
+  }
+  return calculateStreak(habit, logs).current;
+}
+
+function getHabitScheduleSummary(schedule: HabitSchedule, habit: Habit) {
+  const cadence =
+    schedule.kind === 'daily'
+      ? 'Daily'
+      : schedule.kind === 'weekdays'
+        ? 'Weekdays'
+        : schedule.kind === 'timesPerWeek'
+          ? `${schedule.count}x per week`
+          : schedule.kind === 'timesPerMonth'
+            ? `${schedule.count}x per month`
+            : `Every ${schedule.everyDays} days`;
+
+  return `${cadence} · ${getHabitTimeLabel(habit)}`;
+}
+
+function getHabitTimeLabel(habit: Habit) {
+  const reminder = habit.reminders.find((item) => item.enabled) ?? habit.reminders[0];
+  if (!reminder?.time) {
+    return 'Today';
+  }
+
+  const [hourText] = reminder.time.split(':');
+  const hour = Number(hourText);
+  if (Number.isNaN(hour)) {
+    return reminder.time;
+  }
+
+  if (hour < 12) {
+    return `At ${reminder.time}`;
+  }
+  if (hour < 18) {
+    return 'Afternoon';
+  }
+  return 'Evening';
+}
+
 const styles = StyleSheet.create({
   closeButton: {
     position: 'absolute',
@@ -1283,39 +1546,33 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   modeButton: {
-    width: 38,
+    minWidth: 62,
     height: 38,
     borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  modeButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
   newChatButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    display: 'none',
   },
   voiceContent: {
     alignItems: 'center',
     paddingHorizontal: 20,
-    gap: 20,
+    gap: 16,
   },
   orbField: {
-    width: ORB_SIZE + 80,
-    height: ORB_SIZE + 80,
+    width: ORB_SIZE + 54,
+    height: ORB_SIZE + 54,
     alignItems: 'center',
     justifyContent: 'center',
   },
   orbGlow: {
     position: 'absolute',
-  },
-  stateRow: {
-    width: '100%',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 10,
   },
   stateBadge: {
     flexDirection: 'row',
@@ -1336,35 +1593,95 @@ const styles = StyleSheet.create({
   },
   captionStrip: {
     width: '100%',
-    minHeight: 96,
+    minHeight: 54,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
+  },
+  transcriptStack: {
+    width: '100%',
+    gap: 10,
+    alignItems: 'flex-start',
+  },
+  transcriptBadge: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '600',
   },
   transcriptWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     gap: 6,
     rowGap: 4,
   },
   word: {
-    fontSize: 19,
-    lineHeight: 26,
+    fontSize: 20,
+    lineHeight: 31,
     fontWeight: '500',
   },
   emptyVoiceState: {
     gap: 6,
     alignItems: 'center',
   },
+  kickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  helperKicker: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '500',
+  },
   emptyVoiceTitle: {
-    fontSize: 20,
-    lineHeight: 26,
+    fontSize: 17,
+    lineHeight: 22,
     fontWeight: '700',
+  },
+  emptyVoiceTitleLeft: {
+    width: '100%',
+    textAlign: 'left',
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: '400',
   },
   emptyVoiceBody: {
     fontSize: 14,
     lineHeight: 20,
+    fontWeight: '400',
+    textAlign: 'center',
+  },
+  suggestedBlock: {
+    width: '100%',
+    gap: 12,
+  },
+  suggestedRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  suggestedCard: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+    minHeight: 92,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  suggestedIcon: {
+    fontSize: 20,
+  },
+  suggestedTitle: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  suggestedMeta: {
+    fontSize: 11,
+    lineHeight: 14,
     fontWeight: '400',
     textAlign: 'center',
   },
@@ -1375,7 +1692,7 @@ const styles = StyleSheet.create({
   },
   voiceHistoryBlock: {
     width: '100%',
-    gap: 8,
+    gap: 6,
   },
   sectionEyebrow: {
     fontSize: 11,
@@ -1419,13 +1736,13 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
-    marginTop: 12,
+    marginTop: 14,
   },
   threadBubble: {
-    maxWidth: '86%',
-    borderRadius: 18,
-    paddingHorizontal: 15,
-    paddingVertical: 12,
+    maxWidth: '84%',
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     borderWidth: 1,
   },
   threadLabel: {
@@ -1440,27 +1757,33 @@ const styles = StyleSheet.create({
     fontWeight: '400',
   },
   chatEmptyState: {
-    minHeight: 380,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    paddingHorizontal: 18,
+    minHeight: 180,
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
+    gap: 8,
+    paddingHorizontal: 6,
+    paddingTop: 6,
+  },
+  chatEmptyEyebrow: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '500',
   },
   chatEmptyTitle: {
     fontSize: 22,
     lineHeight: 28,
-    fontWeight: '700',
-    textAlign: 'center',
+    fontWeight: '600',
+    maxWidth: 280,
   },
   chatEmptyBody: {
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 14,
+    lineHeight: 20,
     fontWeight: '400',
-    textAlign: 'center',
+    maxWidth: 320,
   },
   confirmCard: {
     width: '100%',
-    borderRadius: 20,
+    borderRadius: 24,
     padding: 18,
     borderWidth: 1,
     gap: 14,
@@ -1472,16 +1795,49 @@ const styles = StyleSheet.create({
   confirmHeader: {
     gap: 4,
   },
+  confirmEyebrowRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   confirmEyebrow: {
     fontSize: 12,
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.4,
   },
+  confirmVisualCard: {
+    borderRadius: 22,
+    borderWidth: 1,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: 'rgba(7, 16, 22, 0.72)',
+  },
+  confirmHeroTitle: {
+    fontSize: 20,
+    lineHeight: 28,
+    fontWeight: '400',
+    textAlign: 'center',
+  },
+  confirmMetricList: {
+    width: '100%',
+    gap: 10,
+  },
+  confirmMetricRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  confirmMetricText: {
+    fontSize: 14,
+    lineHeight: 18,
+  },
   confirmTitle: {
-    fontSize: 19,
+    fontSize: 18,
     lineHeight: 24,
-    fontWeight: '700',
+    fontWeight: '400',
   },
   confirmBody: {
     fontSize: 15,
@@ -1489,15 +1845,73 @@ const styles = StyleSheet.create({
     fontWeight: '400',
   },
   optionWrap: {
+    gap: 12,
+  },
+  clarifyOptionCard: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 14,
+  },
+  clarifyLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  clarifyIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  clarifyIcon: {
+    fontSize: 20,
+  },
+  clarifyCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  clarifyTitle: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  clarifyMeta: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  clarifyRight: {
+    minWidth: 52,
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  clarifyStreakValue: {
+    fontSize: 28,
+    lineHeight: 28,
+    fontWeight: '300',
+  },
+  clarifyStreakLabel: {
+    fontSize: 11,
+    lineHeight: 14,
+  },
+  clarificationFooter: {
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  clarificationFooterText: {
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
   },
   optionChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 999,
-    borderWidth: 1,
+    gap: 10,
+    display: 'none',
   },
   optionChipText: {
     fontSize: 14,
@@ -1560,12 +1974,13 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 16,
     paddingTop: 10,
+    borderTopWidth: 1,
   },
   chatInput: {
     flex: 1,
     minHeight: 54,
     maxHeight: 132,
-    borderRadius: 18,
+    borderRadius: 22,
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderWidth: 1,
@@ -1579,6 +1994,7 @@ const styles = StyleSheet.create({
     borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
   },
   chatSendDisabled: {
     opacity: 0.5,
@@ -1586,11 +2002,13 @@ const styles = StyleSheet.create({
   micButton: {
     position: 'absolute',
     alignSelf: 'center',
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(190,168,255,0.35)',
     shadowOpacity: 0.4,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 6 },
